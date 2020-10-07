@@ -35,6 +35,10 @@ include ":runners:extensions-java:metrics"
 include ":runners:flink:1.7"
 include ":runners:flink:1.7:job-server"
 include ":runners:flink:1.7:job-server-container"
+// Clonos 1.7
+include ":runners:clonos:1.7"
+include ":runners:clonos:1.7:job-server"
+include ":runners:clonos:1.7:job-server-container"
 /* End Flink Runner related settings */
 include ":runners:gearpump"
 include ":runners:google-cloud-dataflow-java"
