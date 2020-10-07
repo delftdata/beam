@@ -95,6 +95,7 @@ import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.runtime.causal.determinant.ProcessingTimeCallbackID;
 import org.apache.flink.runtime.state.KeyedStateBackend;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.StateInitializationContext;
@@ -112,6 +113,7 @@ import org.apache.flink.streaming.api.operators.Triggerable;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.tasks.ProcessingTimeCallback;
 import org.apache.flink.streaming.runtime.tasks.StreamTask;
 import org.apache.flink.util.OutputTag;
 import org.joda.time.Instant;
@@ -454,8 +456,7 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
     long bundleCheckPeriod = Math.max(maxBundleTimeMills / 2, 1);
     checkFinishBundleTimer =
         getProcessingTimeService()
-            .scheduleAtFixedRate(
-                timestamp -> checkInvokeFinishBundleByTime(), bundleCheckPeriod, bundleCheckPeriod);
+            .scheduleAtFixedRate(new CheckFinishBundleCallback(), bundleCheckPeriod, bundleCheckPeriod);
 
     if (doFn instanceof SplittableParDoViaKeyedWorkItems.ProcessFn) {
       pushbackDoFnRunner =
@@ -463,6 +464,20 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
     } else {
       pushbackDoFnRunner =
           SimplePushbackSideInputDoFnRunner.create(doFnRunner, sideInputs, sideInputHandler);
+    }
+  }
+
+  private class CheckFinishBundleCallback implements ProcessingTimeCallback {
+
+    private final ProcessingTimeCallbackID callbackID = new ProcessingTimeCallbackID("CFB");
+    @Override
+    public void onProcessingTime(long l) throws Exception {
+      checkInvokeFinishBundleByTime();
+    }
+
+    @Override
+    public ProcessingTimeCallbackID getID() {
+      return callbackID;
     }
   }
 

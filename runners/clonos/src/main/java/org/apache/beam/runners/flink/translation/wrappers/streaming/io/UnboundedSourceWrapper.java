@@ -47,6 +47,7 @@ import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.OperatorStateStore;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.causal.determinant.ProcessingTimeCallbackID;
 import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.DefaultOperatorStateBackend;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
@@ -70,6 +71,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
 
   private static final Logger LOG = LoggerFactory.getLogger(UnboundedSourceWrapper.class);
 
+  private static final ProcessingTimeCallbackID callbackID = new ProcessingTimeCallbackID("USW");
   private final String stepName;
   /** Keep the options so that we can initialize the localReaders. */
   private final SerializablePipelineOptions serializedOptions;
@@ -465,6 +467,11 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
       }
       setNextWatermarkTimer(this.runtimeContext);
     }
+  }
+
+  @Override
+  public ProcessingTimeCallbackID getID() {
+    return callbackID;
   }
 
   // the callback is ourselves so there is nothing meaningful we can do with the ScheduledFuture

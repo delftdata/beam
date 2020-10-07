@@ -102,6 +102,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.GenericTypeInfo;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.causal.determinant.ProcessingTimeCallbackID;
 import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
@@ -1375,6 +1376,7 @@ class FlinkStreamingTransformTranslators {
           CheckpointedFunction {
 
     private final UnboundedSourceWrapper<OutputT, CheckpointMarkT> unboundedSourceWrapper;
+    private static final ProcessingTimeCallbackID callbackID = new ProcessingTimeCallbackID("NVR");
 
     @VisibleForTesting
     UnboundedSourceWrapper<OutputT, CheckpointMarkT> getUnderlyingSource() {
@@ -1425,6 +1427,11 @@ class FlinkStreamingTransformTranslators {
     @Override
     public void onProcessingTime(long timestamp) throws Exception {
       unboundedSourceWrapper.onProcessingTime(timestamp);
+    }
+
+    @Override
+    public ProcessingTimeCallbackID getID() {
+      return callbackID;
     }
 
     private final class SourceContextWrapper
