@@ -151,10 +151,17 @@ public enum NexmarkSuite {
    */
   public Set<NexmarkConfiguration> getConfigurations(NexmarkOptions options) {
     Set<NexmarkConfiguration> results = new LinkedHashSet<>();
+if(options.getQuery() != null){
+      NexmarkConfiguration queryConfig = configurations.stream().filter(x -> NexmarkQueryName.fromId(options.getQuery()).equals(x.query)).findFirst().get();
+      NexmarkConfiguration result = queryConfig.copy();
+      result.overrideFromOptions(options);
+      results.add(result);
+    }else {
     for (NexmarkConfiguration configuration : configurations) {
       NexmarkConfiguration result = configuration.copy();
       result.overrideFromOptions(options);
       results.add(result);
+    }
     }
     return results;
   }

@@ -70,7 +70,8 @@ public class Query7 extends NexmarkQueryTransform<Bid> {
     final PCollectionView<Long> maxPriceView =
         slidingBids
             .apply("BidToPrice", NexmarkQueryUtil.BID_TO_PRICE)
-            .apply(Max.longsGlobally().withFanout(configuration.fanout).asSingletonView());
+            .apply(Max.longsGlobally().asSingletonView());
+    //.withFanout(configuration.fanout)
 
     return slidingBids
         // Select all bids which have that maximum price (there may be more than one).

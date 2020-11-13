@@ -256,4 +256,11 @@ public interface FlinkPipelineOptions
   Integer getDeterminantSharingDepth();
 
   void setDeterminantSharingDepth(Integer determinantSharingDepth);
+
+  @Description("Whether slot sharing is enabled")
+  @Default.Boolean(true)
+  Boolean getSlotSharingEnabled();
+
+  void setSlotSharingEnabled(Boolean bool);
+
 }

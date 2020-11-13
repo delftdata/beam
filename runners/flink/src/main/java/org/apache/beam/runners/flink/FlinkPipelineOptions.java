@@ -248,4 +248,11 @@ public interface FlinkPipelineOptions
   Boolean isAutoBalanceWriteFilesShardingEnabled();
 
   void setAutoBalanceWriteFilesShardingEnabled(Boolean autoBalanceWriteFilesShardingEnabled);
+
+  @Description("Whether slot sharing is enabled")
+  @Default.Boolean(true)
+  Boolean getSlotSharingEnabled();
+
+  void setSlotSharingEnabled(Boolean bool);
+
 }
