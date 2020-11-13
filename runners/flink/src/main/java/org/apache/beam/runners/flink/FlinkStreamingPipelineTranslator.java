@@ -21,11 +21,7 @@ import static org.apache.beam.runners.core.construction.PTransformTranslation.WR
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import org.apache.beam.runners.core.construction.PTransformReplacements;
@@ -86,6 +82,12 @@ class FlinkStreamingPipelineTranslator extends FlinkPipelineTranslator {
     // Ensure all outputs of all reads are consumed.
     UnconsumedReads.ensureAllReadsConsumed(pipeline);
     super.translate(pipeline);
+    //streamingContext.getExecutionEnvironment().getStreamGraph().getStreamNodes().stream().forEach(
+    //        x ->
+    //                x.setCoLocationGroup(String.valueOf(UUID.randomUUID()))
+
+    //);
+    //streamingContext.getExecutionEnvironment().disableOperatorChaining();
   }
 
   // --------------------------------------------------------------------------------------------

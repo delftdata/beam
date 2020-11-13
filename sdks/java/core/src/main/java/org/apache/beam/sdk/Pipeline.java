@@ -46,6 +46,8 @@ import org.apache.beam.sdk.runners.TransformHierarchy.Node;
 import org.apache.beam.sdk.schemas.SchemaRegistry;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.PTransform;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.util.UserCodeException;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
@@ -185,6 +187,7 @@ public class Pipeline {
       String name, PTransform<? super PBegin, OutputT> root) {
     return begin().apply(name, root);
   }
+
 
   @Internal
   public static Pipeline forTransformHierarchy(

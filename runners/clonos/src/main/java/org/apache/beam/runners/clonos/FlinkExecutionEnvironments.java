@@ -181,6 +181,7 @@ public class FlinkExecutionEnvironments {
       LOG.info("Using Flink Master URL {}:{}.", hostAndPort.getHost(), hostAndPort.getPort());
     }
 
+    flinkStreamEnv.setDeterminantSharingDepth(options.getDeterminantSharingDepth());
     // Set the parallelism, required by UnboundedSourceWrapper to generate consistent splits.
     final int parallelism =
         determineParallelism(

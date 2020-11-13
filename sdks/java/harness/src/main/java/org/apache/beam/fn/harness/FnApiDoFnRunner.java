@@ -83,6 +83,8 @@ import org.apache.beam.sdk.transforms.splittabledofn.RestrictionTracker;
 import org.apache.beam.sdk.transforms.splittabledofn.SplitResult;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.util.UserCodeException;
 import org.apache.beam.sdk.util.WindowedValue;
 import org.apache.beam.sdk.util.WindowedValue.WindowedValueCoder;
@@ -935,6 +937,7 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, OutputT> {
       public PipelineOptions getPipelineOptions() {
         return pipelineOptions;
       }
+
     }
 
     private final Context context = new Context();
@@ -1015,6 +1018,11 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, OutputT> {
     @Override
     public BoundedWindow window() {
       return currentWindow;
+    }
+
+    @Override
+    public RandomService getRandomService() {
+      return new ThreadLocalRandomServiceAdaptor();
     }
 
     @Override

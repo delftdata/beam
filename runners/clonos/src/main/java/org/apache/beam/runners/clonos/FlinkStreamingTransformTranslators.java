@@ -114,6 +114,7 @@ import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.transformations.TwoInputTransformation;
 import org.apache.flink.streaming.api.watermark.Watermark;
@@ -1391,8 +1392,10 @@ class FlinkStreamingTransformTranslators {
 
     @Override
     public void open(Configuration parameters) throws Exception {
+      ((StreamingRuntimeContext) getRuntimeContext()).getProcessingTimeService().registerCallback(this);
       unboundedSourceWrapper.setRuntimeContext(getRuntimeContext());
       unboundedSourceWrapper.open(parameters);
+
     }
 
     @Override
@@ -1482,6 +1485,7 @@ class FlinkStreamingTransformTranslators {
       public void close() {
         ctx.close();
       }
+
     }
   }
 }

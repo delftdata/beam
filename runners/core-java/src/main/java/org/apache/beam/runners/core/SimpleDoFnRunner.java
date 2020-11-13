@@ -51,6 +51,8 @@ import org.apache.beam.sdk.transforms.reflect.DoFnSignatures;
 import org.apache.beam.sdk.transforms.splittabledofn.RestrictionTracker;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.util.SystemDoFnInternal;
 import org.apache.beam.sdk.util.UserCodeException;
 import org.apache.beam.sdk.util.WindowedValue;
@@ -105,6 +107,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
   @Nullable private final SchemaCoder<InputT> schemaCoder;
 
   @Nullable final SchemaCoder<OutputT> mainOutputSchemaCoder;
+  private final RandomService randomService;
 
   @Nullable private Map<TupleTag<?>, Coder<?>> outputCoders;
 
@@ -126,6 +129,24 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
       WindowingStrategy<?, ?> windowingStrategy,
       DoFnSchemaInformation doFnSchemaInformation,
       Map<String, PCollectionView<?>> sideInputMapping) {
+    this(options, fn, sideInputReader, outputManager, mainOutputTag, additionalOutputTags, stepContext, inputCoder,
+            outputCoders, windowingStrategy, doFnSchemaInformation, sideInputMapping, new ThreadLocalRandomServiceAdaptor());
+  }
+  public SimpleDoFnRunner(
+          PipelineOptions options,
+          DoFn<InputT, OutputT> fn,
+          SideInputReader sideInputReader,
+          OutputManager outputManager,
+          TupleTag<OutputT> mainOutputTag,
+          List<TupleTag<?>> additionalOutputTags,
+          StepContext stepContext,
+          @Nullable Coder<InputT> inputCoder,
+          Map<TupleTag<?>, Coder<?>> outputCoders,
+          WindowingStrategy<?, ?> windowingStrategy,
+          DoFnSchemaInformation doFnSchemaInformation,
+          Map<String, PCollectionView<?>> sideInputMapping, RandomService randomService) {
+
+    this.randomService = randomService;
     this.options = options;
     this.fn = fn;
     this.signature = DoFnSignatures.getSignature(fn.getClass());
@@ -221,7 +242,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
   private void invokeProcessElement(WindowedValue<InputT> elem) {
     // This can contain user code. Wrap it in case it throws an exception.
     try {
-      invoker.invokeProcessElement(new DoFnProcessContext(elem));
+      invoker.invokeProcessElement(new DoFnProcessContext(elem, randomService));
     } catch (Exception ex) {
       throw wrapUserCodeException(ex);
     }
@@ -560,6 +581,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
   private class DoFnProcessContext extends DoFn<InputT, OutputT>.ProcessContext
       implements DoFnInvoker.ArgumentProvider<InputT, OutputT> {
     final WindowedValue<InputT> elem;
+    final RandomService randomService;
     /** Lazily initialized; should only be accessed via {@link #getNamespace()}. */
     @Nullable private StateNamespace namespace;
 
@@ -577,9 +599,10 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
       return namespace;
     }
 
-    private DoFnProcessContext(WindowedValue<InputT> elem) {
+    private DoFnProcessContext(WindowedValue<InputT> elem, RandomService randomService) {
       fn.super();
       this.elem = elem;
+      this.randomService = randomService;
     }
 
     @Override
@@ -590,6 +613,11 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
     @Override
     public InputT element() {
       return elem.getValue();
+    }
+
+    @Override
+    public RandomService getRandomService() {
+      return randomService;
     }
 
     @Override

@@ -622,6 +622,7 @@ public abstract class DoFnSignature {
       public abstract TypeDescriptor<?> elementT();
     }
 
+
     /**
      * Descriptor for a (@link Parameter} of type {@link DoFn.Element} where the type does not match
      * the DoFn's input type. This implies that the input must have a schema that is compatible.

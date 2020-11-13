@@ -48,6 +48,8 @@ import org.apache.beam.sdk.transforms.splittabledofn.RestrictionTracker;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.transforms.windowing.TimestampCombiner;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.util.WindowedValue;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
@@ -428,6 +430,7 @@ public class SplittableParDoViaKeyedWorkItems {
             public PipelineOptions getPipelineOptions() {
               return baseContext.getPipelineOptions();
             }
+
           };
         }
 

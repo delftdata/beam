@@ -67,6 +67,7 @@ dependencies {
   compile library.java.avro
   compile library.java.joda_time
   compile library.java.slf4j_api
+  compile library.java.slf4j_log4j12
   compile library.java.kafka_clients
   provided library.java.junit
   provided library.java.hamcrest_core

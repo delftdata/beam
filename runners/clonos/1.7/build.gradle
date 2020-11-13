@@ -21,7 +21,7 @@ def basePath = '..'
 /* All properties required for loading the Flink build script */
 project.ext {
   // Set the version of all Flink-related dependencies here.
-  clonos_version = '20.0-SNAPSHOT'
+  clonos_version = '1.7-CLONOS-SNAPSHOT'
   // Version specific code overrides.
   main_source_overrides = ['./src/main/java']
   test_source_overrides = ['./src/test/java']

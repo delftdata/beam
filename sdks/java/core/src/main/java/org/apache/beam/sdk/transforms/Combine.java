@@ -54,6 +54,8 @@ import org.apache.beam.sdk.transforms.display.HasDisplayData;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindows;
 import org.apache.beam.sdk.transforms.windowing.Window;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.util.AppliedCombineFn;
 import org.apache.beam.sdk.util.NameUtils;
 import org.apache.beam.sdk.util.NameUtils.NameOverride;
@@ -72,6 +74,8 @@ import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.sdk.values.WindowingStrategy;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableList;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Iterables;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * {@code PTransform}s for combining {@code PCollection} elements globally and per-key.
@@ -81,6 +85,10 @@ import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Iterable
  * for how to use the operations in this class.
  */
 public class Combine {
+
+
+  private final Logger LOG = LoggerFactory.getLogger(Combine.class);
+
   private Combine() {
     // do not instantiate
   }
@@ -1868,7 +1876,10 @@ public class Combine {
               "AddNonce",
               ParDo.of(
                       new DoFn<KV<K, InputT>, KV<K, InputT>>() {
+
+                        private final Logger LOG = LoggerFactory.getLogger(ParDo.class);
                         transient int nonce;
+                        transient boolean newNonce = true;
 
                         @StartBundle
                         public void startBundle() {
@@ -1877,12 +1888,17 @@ public class Combine {
                           // (as well as making less efficient use of PGBK combining tables).
                           // Instead, each bundle independently makes a consistent choice about
                           // which "shard" of a key to send its intermediate results.
-                          nonce = ThreadLocalRandom.current().nextInt(Integer.MAX_VALUE);
+                            newNonce = true;
+                            LOG.info("Start bundle called in PerKey");
                         }
 
                         @ProcessElement
-                        public void processElement(
+                        public void processElement(ProcessContext processContext,
                             @Element KV<K, InputT> kv, MultiOutputReceiver receiver) {
+                          if(newNonce) {
+                            nonce = processContext.getRandomService().nextInt(Integer.MAX_VALUE);
+                            newNonce = false;
+                          }
                           int spread = hotKeyFanout.apply(kv.getKey());
                           if (spread <= 1) {
                             receiver.get(cold).output(kv);

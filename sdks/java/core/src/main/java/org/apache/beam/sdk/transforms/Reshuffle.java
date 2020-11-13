@@ -24,6 +24,7 @@ import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.ReshuffleTrigger;
 import org.apache.beam.sdk.transforms.windowing.TimestampCombiner;
 import org.apache.beam.sdk.transforms.windowing.Window;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
 import org.apache.beam.sdk.util.IdentityWindowFn;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
@@ -63,6 +64,10 @@ public class Reshuffle<K, V> extends PTransform<PCollection<KV<K, V>>, PCollecti
   @Experimental
   public static <T> ViaRandomKey<T> viaRandomKey() {
     return new ViaRandomKey<>();
+  }
+
+  public static <T> ViaDeterministicRandomKey<T> viaDeterministicRandomKey() {
+    return new ViaDeterministicRandomKey<>();
   }
 
   @Override
@@ -140,5 +145,53 @@ public class Reshuffle<K, V> extends PTransform<PCollection<KV<K, V>>, PCollecti
         r.output(KV.of(hashOfShard, element));
       }
     }
+  }
+
+  private static class ViaDeterministicRandomKey<T> extends PTransform<PCollection<T>, PCollection<T>> {
+
+    public ViaDeterministicRandomKey() {
+    }
+
+    @Override
+    public PCollection<T> expand(PCollection<T> input) {
+      return input
+              .apply("Pair with deterministic random key", ParDo.of(new AssignShardFn<>()))
+              .apply(Reshuffle.of())
+              .apply(Values.create());
+    }
+
+    private static class AssignShardFn<T> extends DoFn<T, KV<Integer, T>> {
+      private int shard;
+      private boolean initialized;
+      public AssignShardFn(){
+
+      }
+
+      @Setup
+      public void setup() {
+          initialized = false;
+      }
+
+      @ProcessElement
+      public void processElement(ProcessContext context, @Element T element, OutputReceiver<KV<Integer, T>> r) {
+        if(!initialized){
+          initialized = true;
+          shard = context.getRandomService().nextInt();
+        }
+        ++shard;
+        // Smear the shard into something more random-looking, to avoid issues
+        // with runners that don't properly hash the key being shuffled, but rely
+        // on it being random-looking. E.g. Spark takes the Java hashCode() of keys,
+        // which for Integer is a no-op and it is an issue:
+        // http://hydronitrogen.com/poor-hash-partitioning-of-timestamps-integers-and-longs-in-
+        // spark.html
+        // This hashing strategy is copied from
+        // org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.Hashing.smear().
+        int hashOfShard = 0x1b873593 * Integer.rotateLeft(shard * 0xcc9e2d51, 15);
+        r.output(KV.of(hashOfShard, element));
+      }
+    }
+
+
   }
 }

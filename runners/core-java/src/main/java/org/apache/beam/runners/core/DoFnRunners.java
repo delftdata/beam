@@ -30,6 +30,7 @@ import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.DoFnSchemaInformation;
 import org.apache.beam.sdk.transforms.reflect.DoFnSignatures;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
 import org.apache.beam.sdk.util.WindowedValue;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
@@ -79,11 +80,40 @@ public class DoFnRunners {
         sideInputMapping);
   }
 
-  /**
-   * Returns an implementation of {@link DoFnRunner} that handles late data dropping.
-   *
-   * <p>It drops elements from expired windows before they reach the underlying {@link DoFn}.
-   */
+  public static <InputT, OutputT> DoFnRunner<InputT, OutputT> simpleRunner(
+          PipelineOptions options,
+          DoFn<InputT, OutputT> fn,
+          SideInputReader sideInputReader,
+          OutputManager outputManager,
+          TupleTag<OutputT> mainOutputTag,
+          List<TupleTag<?>> additionalOutputTags,
+          StepContext stepContext,
+          Coder<InputT> inputCoder,
+          Map<TupleTag<?>, Coder<?>> outputCoders,
+          WindowingStrategy<?, ?> windowingStrategy,
+          DoFnSchemaInformation doFnSchemaInformation,
+          Map<String, PCollectionView<?>> sideInputMapping, RandomService randomService) {
+    return new SimpleDoFnRunner<>(
+            options,
+            fn,
+            sideInputReader,
+            outputManager,
+            mainOutputTag,
+            additionalOutputTags,
+            stepContext,
+            inputCoder,
+            outputCoders,
+            windowingStrategy,
+            doFnSchemaInformation,
+            sideInputMapping, randomService);
+  }
+
+
+    /**
+     * Returns an implementation of {@link DoFnRunner} that handles late data dropping.
+     *
+     * <p>It drops elements from expired windows before they reach the underlying {@link DoFn}.
+     */
   public static <K, InputT, OutputT, W extends BoundedWindow>
       DoFnRunner<KeyedWorkItem<K, InputT>, KV<K, OutputT>> lateDataDroppingRunner(
           DoFnRunner<KeyedWorkItem<K, InputT>, KV<K, OutputT>> wrappedRunner,

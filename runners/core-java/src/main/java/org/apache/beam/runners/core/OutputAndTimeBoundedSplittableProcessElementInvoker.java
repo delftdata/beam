@@ -25,6 +25,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
+
 import org.apache.beam.sdk.fn.splittabledofn.RestrictionTrackers;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.state.State;
@@ -43,6 +44,8 @@ import org.apache.beam.sdk.transforms.splittabledofn.RestrictionTracker;
 import org.apache.beam.sdk.transforms.splittabledofn.SplitResult;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.util.WindowedValue;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
@@ -304,6 +307,7 @@ public class OutputAndTimeBoundedSplittableProcessElementInvoker<
       implements RestrictionTrackers.ClaimObserver<PositionT> {
     private final WindowedValue<InputT> element;
     private final RestrictionTracker<RestrictionT, PositionT> tracker;
+    private final RandomService randomService;
     private int numClaimedBlocks;
     private boolean hasClaimFailed;
 
@@ -326,7 +330,17 @@ public class OutputAndTimeBoundedSplittableProcessElementInvoker<
       fn.super();
       this.element = element;
       this.tracker = RestrictionTrackers.observe(tracker, this);
+      this.randomService = new ThreadLocalRandomServiceAdaptor();
     }
+
+
+      public ProcessContext(
+              WindowedValue<InputT> element, RestrictionTracker<RestrictionT, PositionT> tracker, RandomService randomService) {
+          fn.super();
+          this.element = element;
+          this.tracker = RestrictionTrackers.observe(tracker, this);
+          this.randomService = randomService;
+      }
 
     @Override
     public void onClaimed(PositionT position) {
@@ -394,6 +408,11 @@ public class OutputAndTimeBoundedSplittableProcessElementInvoker<
           view.getWindowMappingFn()
               .getSideInputWindow(Iterables.getOnlyElement(element.getWindows())));
     }
+
+      @Override
+      public RandomService getRandomService() {
+          return randomService;
+      }
 
     @Override
     public Instant timestamp() {

@@ -34,6 +34,8 @@ import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.display.DisplayData;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.util.BackOff;
 import org.apache.beam.sdk.util.FluentBackoff;
 import org.apache.beam.sdk.util.NameUtils;
@@ -79,8 +81,9 @@ public class BoundedReadFromUnboundedSource<T> extends PTransform<PBegin, PColle
     return new BoundedReadFromUnboundedSource<>(source, maxNumRecords, maxReadTime);
   }
 
+
   BoundedReadFromUnboundedSource(
-      UnboundedSource<T, ?> source, long maxNumRecords, @Nullable Duration maxReadTime) {
+          UnboundedSource<T, ?> source, long maxNumRecords, @Nullable Duration maxReadTime) {
     this.source = source;
     this.maxNumRecords = maxNumRecords;
     this.maxReadTime = maxReadTime;
@@ -102,7 +105,7 @@ public class BoundedReadFromUnboundedSource<T> extends PTransform<PBegin, PColle
                     .withCoder(shardCoder))
             .apply("Split", ParDo.of(new SplitFn<>()))
             .setCoder(shardCoder)
-            .apply("Reshuffle", Reshuffle.viaRandomKey())
+            .apply("Deterministic Reshuffle ",  Reshuffle.viaDeterministicRandomKey())
             .apply("Read", ParDo.of(new ReadFn<>()))
             .setCoder(ValueWithRecordId.ValueWithRecordIdCoder.of(source.getOutputCoder()));
     if (source.requiresDeduping()) {

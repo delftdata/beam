@@ -44,6 +44,8 @@ import org.apache.beam.sdk.transforms.reflect.DoFnSignatures;
 import org.apache.beam.sdk.transforms.splittabledofn.RestrictionTracker;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
+import org.apache.beam.sdk.transforms.workaround.ThreadLocalRandomServiceAdaptor;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollection.IsBounded;
@@ -142,6 +144,7 @@ public class SplittableParDoNaiveBounded {
                 public PipelineOptions getPipelineOptions() {
                   return c.getPipelineOptions();
                 }
+
               };
             }
 
@@ -250,6 +253,7 @@ public class SplittableParDoNaiveBounded {
       public BoundedWindow window() {
         return window;
       }
+
 
       @Override
       public PaneInfo paneInfo(DoFn<InputT, OutputT> doFn) {
@@ -384,6 +388,11 @@ public class SplittableParDoNaiveBounded {
       @Override
       public InputT element() {
         return element;
+      }
+
+      @Override
+      public RandomService getRandomService() {
+        return new ThreadLocalRandomServiceAdaptor();
       }
 
       @Override

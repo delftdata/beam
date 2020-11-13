@@ -100,21 +100,23 @@ public class ClonosRunner extends PipelineRunner<PipelineResult> {
 
     MetricsEnvironment.setMetricsSupported(true);
 
-    LOG.info("Executing pipeline using FlinkRunner.");
+    LOG.info("Executing pipeline using ClonosRunner.");
 
     FlinkPipelineExecutionEnvironment env = new FlinkPipelineExecutionEnvironment(options);
 
-    LOG.info("Translating pipeline to Flink program.");
+    LOG.info("Translating pipeline to Clonos program.");
     env.translate(pipeline);
 
     JobExecutionResult result;
     try {
-      LOG.info("Starting execution of Flink program.");
+      LOG.info("Starting execution of Clonos program.");
       result = env.executePipeline();
+      LOG.info("Concluded call to execute");
     } catch (Exception e) {
       LOG.error("Pipeline execution failed", e);
       throw new RuntimeException("Pipeline execution failed", e);
     }
+    LOG.info("Call createPipelineResult");
     return createPipelineResult(result, options);
   }
 
@@ -132,6 +134,7 @@ public class ClonosRunner extends PipelineRunner<PipelineResult> {
           LOG.info("{} : {}", entry.getKey(), entry.getValue());
         }
       }
+      LOG.info("Build runner result");
       FlinkRunnerResult flinkRunnerResult =
           new FlinkRunnerResult(accumulators, result.getNetRuntime());
       MetricsPusher metricsPusher =
@@ -152,7 +155,7 @@ public class ClonosRunner extends PipelineRunner<PipelineResult> {
 
   @Override
   public String toString() {
-    return "FlinkRunner#" + hashCode();
+    return "ClonosRunner#" + hashCode();
   }
 
   /** A set of {@link View}s with non-deterministic key coders. */

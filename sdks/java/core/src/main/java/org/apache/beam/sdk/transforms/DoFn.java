@@ -44,6 +44,7 @@ import org.apache.beam.sdk.transforms.splittabledofn.Sizes;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.transforms.windowing.Window;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.Row;
@@ -95,6 +96,7 @@ public abstract class DoFn<InputT, OutputT> implements Serializable, HasDisplayD
      * org.apache.beam.sdk.PipelineRunner} invoking this {@code DoFn}.
      */
     public abstract PipelineOptions getPipelineOptions();
+
   }
 
   /** Information accessible while within the {@link FinishBundle} method. */
@@ -237,6 +239,8 @@ public abstract class DoFn<InputT, OutputT> implements Serializable, HasDisplayD
      * Implementation of {@link DoFn.ProcessElement} method should not mutate the element.
      */
     public abstract InputT element();
+
+    public abstract RandomService getRandomService();
 
     /**
      * Returns the value of the side input.

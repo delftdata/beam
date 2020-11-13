@@ -79,7 +79,7 @@ public class TimestampedValue<V> {
 
   @Override
   public String toString() {
-    return "TimestampedValue(" + value + ", " + timestamp + ")";
+    return value.toString();
   }
 
   /////////////////////////////////////////////////////////////////////////////

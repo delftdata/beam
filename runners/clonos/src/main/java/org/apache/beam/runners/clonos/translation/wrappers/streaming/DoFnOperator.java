@@ -39,6 +39,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
+import org.apache.beam.runners.clonos.DeterministicRandomServiceAdaptor;
 import org.apache.beam.runners.clonos.translation.wrappers.streaming.state.FlinkBroadcastStateInternals;
 import org.apache.beam.runners.clonos.translation.wrappers.streaming.state.FlinkStateInternals;
 import org.apache.beam.runners.core.DoFnRunner;
@@ -383,12 +384,8 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
       keyedStateInternals =
           new FlinkStateInternals<>((KeyedStateBackend) getKeyedStateBackend(), keyCoder);
 
-      if (timerService == null) {
-        timerService =
-            getInternalTimerService("beam-timer", new CoderTypeSerializer<>(timerCoder), this);
-      }
 
-      timerInternals = new FlinkTimerInternals();
+
     }
 
     outputManager =
@@ -409,6 +406,14 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
     // WindowDoFnOperator need use state and timer to get DoFn.
     // So must wait StateInternals and TimerInternals ready.
     // This will be called after initializeState()
+
+      if(keyCoder !=null) {
+        if (timerService == null) {
+          timerService =
+                  getInternalTimerService("beam-timer", new CoderTypeSerializer<>(timerCoder), this);
+        }
+        timerInternals = new FlinkTimerInternals();
+      }
     this.doFn = getDoFn();
     doFnInvoker = DoFnInvokers.invokerFor(doFn);
     doFnInvoker.invokeSetup();
@@ -428,7 +433,8 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
             outputCoders,
             windowingStrategy,
             doFnSchemaInformation,
-            sideInputMapping);
+            sideInputMapping,
+                new DeterministicRandomServiceAdaptor(getRuntimeContext().getRandomService()));
 
     if (requiresStableInput) {
       // put this in front of the root FnRunner before any additional wrappers
@@ -452,12 +458,14 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
 
     elementCount = 0L;
     lastFinishBundleTime = getProcessingTimeService().getCurrentProcessingTime();
+    CheckFinishBundleCallback checkFinishBundleCallback = new CheckFinishBundleCallback();
+    getProcessingTimeService().registerCallback(checkFinishBundleCallback);
 
     // Schedule timer to check timeout of finish bundle.
     long bundleCheckPeriod = Math.max(maxBundleTimeMills / 2, 1);
     checkFinishBundleTimer =
         getProcessingTimeService()
-            .scheduleAtFixedRate(new CheckFinishBundleCallback(), bundleCheckPeriod, bundleCheckPeriod);
+            .scheduleAtFixedRate(checkFinishBundleCallback, bundleCheckPeriod, bundleCheckPeriod);
 
     if (doFn instanceof SplittableParDoViaKeyedWorkItems.ProcessFn) {
       pushbackDoFnRunner =
@@ -1119,6 +1127,7 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
     public TimerInternals timerInternals() {
       return timerInternals;
     }
+
   }
 
   class FlinkTimerInternals implements TimerInternals {

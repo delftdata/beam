@@ -46,6 +46,7 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.coders.VarLongCoder;
 import org.apache.beam.sdk.expansion.ExternalTransformRegistrar;
 import org.apache.beam.sdk.io.Read.Unbounded;
+import org.apache.beam.sdk.io.TextRowCountEstimator;
 import org.apache.beam.sdk.io.UnboundedSource;
 import org.apache.beam.sdk.io.UnboundedSource.CheckpointMark;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -479,6 +480,7 @@ public class KafkaIO {
         }
         throw new RuntimeException("Couldn't resolve coder for Deserializer: " + deserializer);
       }
+
     }
 
     /**
@@ -845,6 +847,7 @@ public class KafkaIO {
       return toBuilder().setConsumerConfig(config).build();
     }
 
+
     /** Returns a {@link PTransform} for PCollection of {@link KV}, dropping Kafka metatdata. */
     public PTransform<PBegin, PCollection<KV<K, V>>> withoutMetadata() {
       return new TypedWithoutMetadata<>(this);
@@ -909,6 +912,7 @@ public class KafkaIO {
         transform =
             unbounded.withMaxReadTime(getMaxReadTime()).withMaxNumRecords(getMaxNumRecords());
       }
+
 
       return input.getPipeline().apply(transform);
     }

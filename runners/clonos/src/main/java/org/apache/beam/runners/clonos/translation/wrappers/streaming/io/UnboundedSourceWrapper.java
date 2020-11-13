@@ -28,7 +28,6 @@ import org.apache.beam.runners.clonos.metrics.FlinkMetricContainer;
 import org.apache.beam.runners.clonos.metrics.ReaderInvocationUtil;
 import org.apache.beam.runners.clonos.translation.types.CoderTypeInformation;
 import org.apache.beam.runners.clonos.translation.utils.Workarounds;
-import org.apache.beam.runners.clonos.translation.wrappers.streaming.io.BeamStoppableFunction;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
@@ -181,10 +180,12 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
   /** Initialize and restore state before starting execution of the source. */
   @Override
   public void open(Configuration parameters) throws Exception {
+    LOG.info("Opening UnboundedSourceWrapper");
     FileSystems.setDefaultPipelineOptions(serializedOptions.get());
     runtimeContext = (StreamingRuntimeContext) getRuntimeContext();
     metricContainer = new FlinkMetricContainer(runtimeContext);
 
+    runtimeContext.getProcessingTimeService().registerCallback((ProcessingTimeCallback)this);
     // figure out which split sources we're responsible for
     int subtaskIndex = runtimeContext.getIndexOfThisSubtask();
     int numSubtasks = runtimeContext.getNumberOfParallelSubtasks();
@@ -347,6 +348,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
             timestamp,
             GlobalWindow.INSTANCE,
             PaneInfo.NO_FIRING);
+    //LOG.info("Emitting element {}", windowedValue);
     ctx.collect(windowedValue);
   }
 

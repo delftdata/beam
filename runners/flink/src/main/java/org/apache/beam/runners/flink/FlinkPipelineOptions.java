@@ -114,7 +114,7 @@ public interface FlinkPipelineOptions
       "Sets the expected behaviour for tasks in case that they encounter an error in their "
           + "checkpointing procedure. If this is set to true, the task will fail on checkpointing error. "
           + "If this is set to false, the task will only decline a the checkpoint and continue running. ")
-  @Default.Boolean(true)
+  @Default.Boolean(false)
   Boolean getFailOnCheckpointingErrors();
 
   void setFailOnCheckpointingErrors(Boolean failOnCheckpointingErrors);
@@ -195,7 +195,7 @@ public interface FlinkPipelineOptions
    * progress on this issue.
    */
   @Description("If set, shutdown sources when their watermark reaches +Inf.")
-  @Default.Boolean(false)
+  @Default.Boolean(true)
   Boolean isShutdownSourcesOnFinalWatermark();
 
   void setShutdownSourcesOnFinalWatermark(Boolean shutdownOnFinalWatermark);
