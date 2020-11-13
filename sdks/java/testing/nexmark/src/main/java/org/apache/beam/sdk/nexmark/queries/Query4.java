@@ -102,6 +102,7 @@ public class Query4 extends NexmarkQueryTransform<CategoryPrice> {
         // Find the average of the winning bids for each category.
         // Make sure we share the work for each category between workers.
         .apply(LatTSPropagatingMean.perKey())
+	//.withHotKeyFanout(configuration.fanout)
 
         // For testing against Query4Model, capture which results are 'final'.
         .apply(

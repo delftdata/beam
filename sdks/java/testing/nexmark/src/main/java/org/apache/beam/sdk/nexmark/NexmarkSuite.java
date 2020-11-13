@@ -164,6 +164,7 @@ public enum NexmarkSuite {
         results.add(result);
       }
     }
+    }
     return results;
   }
 }
