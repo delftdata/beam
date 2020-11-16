@@ -28,33 +28,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.beam.sdk.Pipeline;
-import org.apache.beam.sdk.coders.AvroCoder;
-import org.apache.beam.sdk.coders.ByteArrayCoder;
-import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.coders.CoderException;
-import org.apache.beam.sdk.coders.CoderRegistry;
-import org.apache.beam.sdk.coders.CustomCoder;
-import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.beam.sdk.coders.*;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.GenerateSequence;
 import org.apache.beam.sdk.io.Read;
 import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
-import org.apache.beam.sdk.nexmark.model.Auction;
-import org.apache.beam.sdk.nexmark.model.AuctionBid;
-import org.apache.beam.sdk.nexmark.model.AuctionCount;
-import org.apache.beam.sdk.nexmark.model.AuctionPrice;
-import org.apache.beam.sdk.nexmark.model.Bid;
-import org.apache.beam.sdk.nexmark.model.BidsPerSession;
-import org.apache.beam.sdk.nexmark.model.CategoryPrice;
-import org.apache.beam.sdk.nexmark.model.Done;
-import org.apache.beam.sdk.nexmark.model.Event;
-import org.apache.beam.sdk.nexmark.model.IdNameReserve;
-import org.apache.beam.sdk.nexmark.model.KnownSize;
-import org.apache.beam.sdk.nexmark.model.NameCityStateId;
-import org.apache.beam.sdk.nexmark.model.Person;
-import org.apache.beam.sdk.nexmark.model.SellerPrice;
+import org.apache.beam.sdk.nexmark.model.*;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.nexmark.sources.BoundedEventSource;
 import org.apache.beam.sdk.nexmark.sources.UnboundedEventSource;
 import org.apache.beam.sdk.nexmark.sources.generator.Generator;
@@ -358,6 +340,7 @@ public class NexmarkUtils {
         registry.registerCoderForClass(SellerPrice.class, SellerPrice.CODER);
         registry.registerCoderForClass(Done.class, Done.CODER);
         registry.registerCoderForClass(BidsPerSession.class, BidsPerSession.CODER);
+        registry.registerCoderProvider(CoderProviders.fromStaticMethods(LatTSWrapped.class, LatTSWrapped.LatTSWrappedValueCoder.class));
         break;
       case AVRO:
         registry.registerCoderProvider(AvroCoder.getCoderProvider());
@@ -385,7 +368,7 @@ public class NexmarkUtils {
   }
 
   /** Return a transform which yields a finite number of synthesized events generated as a batch. */
-  public static PTransform<PBegin, PCollection<Event>> batchEventsSource(
+  public static PTransform<PBegin, PCollection<LatTSWrapped<Event>>> batchEventsSource(
       NexmarkConfiguration configuration) {
     return Read.from(
         new BoundedEventSource(
@@ -396,7 +379,7 @@ public class NexmarkUtils {
    * Return a transform which yields a finite number of synthesized events generated on-the-fly in
    * real time.
    */
-  public static PTransform<PBegin, PCollection<Event>> streamEventsSource(
+  public static PTransform<PBegin, PCollection<LatTSWrapped<Event>>> streamEventsSource(
       NexmarkConfiguration configuration) {
     return Read.from(
         new UnboundedEventSource(
@@ -407,9 +390,9 @@ public class NexmarkUtils {
   }
 
   /** Return a transform to pass-through events, but count them as they go by. */
-  public static ParDo.SingleOutput<Event, Event> snoop(final String name) {
+  public static ParDo.SingleOutput<LatTSWrapped<Event>, LatTSWrapped<Event>> snoop(final String name) {
     return ParDo.of(
-        new DoFn<Event, Event>() {
+        new DoFn<LatTSWrapped<Event>, LatTSWrapped<Event>>() {
           final Counter eventCounter = Metrics.counter(name, "events");
           final Counter newPersonCounter = Metrics.counter(name, "newPersons");
           final Counter newAuctionCounter = Metrics.counter(name, "newAuctions");
@@ -419,11 +402,11 @@ public class NexmarkUtils {
           @ProcessElement
           public void processElement(ProcessContext c) {
             eventCounter.inc();
-            if (c.element().newPerson != null) {
+            if (c.element().getValue().newPerson != null) {
               newPersonCounter.inc();
-            } else if (c.element().newAuction != null) {
+            } else if (c.element().getValue().newAuction != null) {
               newAuctionCounter.inc();
-            } else if (c.element().bid != null) {
+            } else if (c.element().getValue().bid != null) {
               bidCounter.inc();
             } else {
               endOfStreamCounter.inc();
@@ -473,7 +456,7 @@ public class NexmarkUtils {
         });
   }
 
-  /** Return a transform to make explicit the timestamp of each element. */
+    /** Return a transform to make explicit the timestamp of each element. */
   public static <T> ParDo.SingleOutput<T, TimestampedValue<T>> stamp(String name) {
     return ParDo.of(
         new DoFn<T, TimestampedValue<T>>() {

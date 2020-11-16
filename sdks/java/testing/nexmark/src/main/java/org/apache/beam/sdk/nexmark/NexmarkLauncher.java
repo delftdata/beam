@@ -35,7 +35,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
-import org.apache.beam.sdk.io.AvroIO;
 import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
@@ -43,48 +42,13 @@ import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
 import org.apache.beam.sdk.io.kafka.KafkaIO;
 import org.apache.beam.sdk.nexmark.NexmarkUtils.PubSubMode;
 import org.apache.beam.sdk.nexmark.NexmarkUtils.SourceType;
-import org.apache.beam.sdk.nexmark.model.Auction;
-import org.apache.beam.sdk.nexmark.model.Bid;
-import org.apache.beam.sdk.nexmark.model.Event;
-import org.apache.beam.sdk.nexmark.model.KnownSize;
-import org.apache.beam.sdk.nexmark.model.Person;
-import org.apache.beam.sdk.nexmark.queries.BoundedSideInputJoin;
-import org.apache.beam.sdk.nexmark.queries.BoundedSideInputJoinModel;
-import org.apache.beam.sdk.nexmark.queries.NexmarkQuery;
-import org.apache.beam.sdk.nexmark.queries.NexmarkQueryModel;
-import org.apache.beam.sdk.nexmark.queries.NexmarkQueryUtil;
-import org.apache.beam.sdk.nexmark.queries.Query0;
-import org.apache.beam.sdk.nexmark.queries.Query0Model;
-import org.apache.beam.sdk.nexmark.queries.Query1;
-import org.apache.beam.sdk.nexmark.queries.Query10;
-import org.apache.beam.sdk.nexmark.queries.Query11;
-import org.apache.beam.sdk.nexmark.queries.Query12;
-import org.apache.beam.sdk.nexmark.queries.Query1Model;
-import org.apache.beam.sdk.nexmark.queries.Query2;
-import org.apache.beam.sdk.nexmark.queries.Query2Model;
-import org.apache.beam.sdk.nexmark.queries.Query3;
-import org.apache.beam.sdk.nexmark.queries.Query3Model;
-import org.apache.beam.sdk.nexmark.queries.Query4;
-import org.apache.beam.sdk.nexmark.queries.Query4Model;
-import org.apache.beam.sdk.nexmark.queries.Query5;
-import org.apache.beam.sdk.nexmark.queries.Query5Model;
-import org.apache.beam.sdk.nexmark.queries.Query6;
-import org.apache.beam.sdk.nexmark.queries.Query6Model;
-import org.apache.beam.sdk.nexmark.queries.Query7;
-import org.apache.beam.sdk.nexmark.queries.Query7Model;
-import org.apache.beam.sdk.nexmark.queries.Query8;
-import org.apache.beam.sdk.nexmark.queries.Query8Model;
-import org.apache.beam.sdk.nexmark.queries.Query9;
-import org.apache.beam.sdk.nexmark.queries.Query9Model;
-import org.apache.beam.sdk.nexmark.queries.SessionSideInputJoin;
-import org.apache.beam.sdk.nexmark.queries.SessionSideInputJoinModel;
-import org.apache.beam.sdk.nexmark.queries.sql.SqlBoundedSideInputJoin;
-import org.apache.beam.sdk.nexmark.queries.sql.SqlQuery0;
-import org.apache.beam.sdk.nexmark.queries.sql.SqlQuery1;
-import org.apache.beam.sdk.nexmark.queries.sql.SqlQuery2;
-import org.apache.beam.sdk.nexmark.queries.sql.SqlQuery3;
-import org.apache.beam.sdk.nexmark.queries.sql.SqlQuery7;
-import org.apache.beam.sdk.testing.PAssert;
+import org.apache.beam.sdk.nexmark.model.*;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
+import org.apache.beam.sdk.nexmark.queries.*;
+//import org.apache.beam.sdk.nexmark.queries.Query6;
+//import org.apache.beam.sdk.nexmark.queries.Query7;
+//import org.apache.beam.sdk.nexmark.queries.Query8;
+
 import org.apache.beam.sdk.testutils.metrics.MetricsReader;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -143,7 +107,7 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
   private NexmarkConfiguration configuration;
 
   /** If in --pubsubMode=COMBINED, the event monitor for the publisher pipeline. Otherwise null. */
-  @Nullable private Monitor<Event> publisherMonitor;
+  @Nullable private Monitor<LatTSWrapped<Event>> publisherMonitor;
 
   /**
    * If in --pubsubMode=COMBINED, the pipeline result for the publisher pipeline. Otherwise null.
@@ -164,13 +128,11 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
 
   @Nullable private PubsubHelper pubsubHelper;
   private final Map<NexmarkQueryName, NexmarkQuery> queries;
-  private final Map<NexmarkQueryName, NexmarkQueryModel> models;
 
   public NexmarkLauncher(OptionT options, NexmarkConfiguration configuration) {
     this.options = options;
     this.configuration = configuration;
     queries = createQueries();
-    models = createQueryModels();
   }
 
   /** Is this query running in streaming mode? */
@@ -420,6 +382,7 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
     List<String> errors = new ArrayList<>();
 
     while (true) {
+        LOG.info("Monitor loop");
       long now = System.currentTimeMillis();
       if (endMsSinceEpoch >= 0 && now > endMsSinceEpoch && !waitingForShutdown) {
         NexmarkUtils.console("Reached end of test, cancelling job");
@@ -446,6 +409,7 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
 
       NexmarkPerf currPerf;
       if (configuration.debug) {
+        LOG.info("Get current perf");
         currPerf =
             currentPerf(
                 startMsSinceEpoch, now, job, snapshots, query.eventMonitor, query.resultMonitor);
@@ -658,7 +622,7 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
   }
 
   /** Return a source of synthetic events. */
-  private PCollection<Event> sourceEventsFromSynthetic(Pipeline p) {
+  private PCollection<LatTSWrapped<Event>> sourceEventsFromSynthetic(Pipeline p) {
     if (isStreaming()) {
       NexmarkUtils.console("Generating %d events in streaming mode", configuration.numEvents);
       return p.apply(queryName + ".ReadUnbounded", NexmarkUtils.streamEventsSource(configuration));
@@ -669,32 +633,32 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
   }
 
   /** Return source of events from Pubsub. */
-  private PCollection<Event> sourceEventsFromPubsub(Pipeline p) {
-    NexmarkUtils.console("Reading events from Pubsub %s", pubsubSubscription);
+  //private PCollection<LatTSWrapped<Event>> sourceEventsFromPubsub(Pipeline p) {
+  //  NexmarkUtils.console("Reading events from Pubsub %s", pubsubSubscription);
 
-    PubsubIO.Read<PubsubMessage> io =
-        PubsubIO.readMessagesWithAttributes()
-            .fromSubscription(pubsubSubscription)
-            .withIdAttribute(NexmarkUtils.PUBSUB_ID);
-    if (!configuration.usePubsubPublishTime) {
-      io = io.withTimestampAttribute(NexmarkUtils.PUBSUB_TIMESTAMP);
-    }
+  //  PubsubIO.Read<PubsubMessage> io =
+  //      PubsubIO.readMessagesWithAttributes()
+  //          .fromSubscription(pubsubSubscription)
+  //          .withIdAttribute(NexmarkUtils.PUBSUB_ID);
+  //  if (!configuration.usePubsubPublishTime) {
+  //    io = io.withTimestampAttribute(NexmarkUtils.PUBSUB_TIMESTAMP);
+  //  }
 
-    return p.apply(queryName + ".ReadPubsubEvents", io)
-        .apply(queryName + ".PubsubMessageToEvent", ParDo.of(new PubsubMessageEventDoFn()));
-  }
+  //  return p.apply(queryName + ".ReadPubsubEvents", io)
+  //      .apply(queryName + ".PubsubMessageToEvent", ParDo.of(new PubsubMessageEventDoFn()));
+  //}
 
-  static final DoFn<Event, byte[]> EVENT_TO_BYTEARRAY =
-      new DoFn<Event, byte[]>() {
+  static final DoFn<LatTSWrapped<Event>, byte[]> EVENT_TO_BYTEARRAY =
+      new DoFn<LatTSWrapped<Event>, byte[]>() {
         @ProcessElement
         public void processElement(ProcessContext c) throws IOException {
-          byte[] encodedEvent = CoderUtils.encodeToByteArray(Event.CODER, c.element());
+          byte[] encodedEvent = CoderUtils.encodeToByteArray(LatTSWrapped.LatTSWrappedValueCoder.of(Event.CODER), c.element());
           c.output(encodedEvent);
         }
       };
 
   /** Send {@code events} to Kafka. */
-  private void sinkEventsToKafka(PCollection<Event> events) {
+  private void sinkEventsToKafka(PCollection<LatTSWrapped<Event>> events) {
     checkArgument((options.getBootstrapServers() != null), "Missing --bootstrapServers");
     NexmarkUtils.console("Writing events to Kafka Topic %s", options.getKafkaTopic());
 
@@ -707,18 +671,18 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
             .values());
   }
 
-  static final DoFn<KV<Long, byte[]>, Event> BYTEARRAY_TO_EVENT =
-      new DoFn<KV<Long, byte[]>, Event>() {
+  static final DoFn<KV<Long, byte[]>, LatTSWrapped<Event>> BYTEARRAY_TO_EVENT =
+      new DoFn<KV<Long, byte[]>, LatTSWrapped<Event>>() {
         @ProcessElement
         public void processElement(ProcessContext c) throws IOException {
           byte[] encodedEvent = c.element().getValue();
-          Event event = CoderUtils.decodeFromByteArray(Event.CODER, encodedEvent);
+          LatTSWrapped<Event> event = CoderUtils.decodeFromByteArray(LatTSWrapped.LatTSWrappedValueCoder.of(Event.CODER), encodedEvent);
           c.output(event);
         }
       };
 
   /** Return source of events from Kafka. */
-  private PCollection<Event> sourceEventsFromKafka(Pipeline p, final Instant now) {
+  private PCollection<LatTSWrapped<Event>> sourceEventsFromKafka(Pipeline p, final Instant now) {
     checkArgument((options.getBootstrapServers() != null), "Missing --bootstrapServers");
     NexmarkUtils.console("Reading events from Kafka Topic %s", options.getKafkaTopic());
 
@@ -736,17 +700,17 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
         .apply(queryName + ".KafkaToEvents", ParDo.of(BYTEARRAY_TO_EVENT));
   }
 
-  /** Return Avro source of events from {@code options.getInputFilePrefix}. */
-  private PCollection<Event> sourceEventsFromAvro(Pipeline p) {
-    String filename = options.getInputPath();
-    if (Strings.isNullOrEmpty(filename)) {
-      throw new RuntimeException("Missing --inputPath");
-    }
-    NexmarkUtils.console("Reading events from Avro files at %s", filename);
-    return p.apply(
-            queryName + ".ReadAvroEvents", AvroIO.read(Event.class).from(filename + "*.avro"))
-        .apply("OutputWithTimestamp", NexmarkQueryUtil.EVENT_TIMESTAMP_FROM_DATA);
-  }
+  ///** Return Avro source of events from {@code options.getInputFilePrefix}. */
+  //private PCollection<LatTSWrapped<Event>> sourceEventsFromAvro(Pipeline p) {
+  //  String filename = options.getInputPath();
+  //  if (Strings.isNullOrEmpty(filename)) {
+  //    throw new RuntimeException("Missing --inputPath");
+  //  }
+  //  NexmarkUtils.console("Reading events from Avro files at %s", filename);
+  //  return p.apply(
+  //          queryName + ".ReadAvroEvents", AvroIO.read(LatTSWrapped<Event>.class).from(filename + "*.avro"))
+  //      .apply("OutputWithTimestamp", NexmarkQueryUtil.EVENT_TIMESTAMP_FROM_DATA);
+  //}
 
   /** Send {@code events} to Pubsub. */
   private void sinkEventsToPubsub(PCollection<Event> events) {
@@ -803,31 +767,31 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
    *
    * @param source A PCollection of events.
    */
-  private void sinkEventsToAvro(PCollection<Event> source) {
-    String filename = options.getOutputPath();
-    if (Strings.isNullOrEmpty(filename)) {
-      throw new RuntimeException("Missing --outputPath");
-    }
-    NexmarkUtils.console("Writing events to Avro files at %s", filename);
-    source.apply(
-        queryName + ".WriteAvroEvents",
-        AvroIO.write(Event.class).to(filename + "/event").withSuffix(".avro"));
-    source
-        .apply(NexmarkQueryUtil.JUST_BIDS)
-        .apply(
-            queryName + ".WriteAvroBids",
-            AvroIO.write(Bid.class).to(filename + "/bid").withSuffix(".avro"));
-    source
-        .apply(NexmarkQueryUtil.JUST_NEW_AUCTIONS)
-        .apply(
-            queryName + ".WriteAvroAuctions",
-            AvroIO.write(Auction.class).to(filename + "/auction").withSuffix(".avro"));
-    source
-        .apply(NexmarkQueryUtil.JUST_NEW_PERSONS)
-        .apply(
-            queryName + ".WriteAvroPeople",
-            AvroIO.write(Person.class).to(filename + "/person").withSuffix(".avro"));
-  }
+  //private void sinkEventsToAvro(PCollection<Event> source) {
+  //  String filename = options.getOutputPath();
+  //  if (Strings.isNullOrEmpty(filename)) {
+  //    throw new RuntimeException("Missing --outputPath");
+  //  }
+  //  NexmarkUtils.console("Writing events to Avro files at %s", filename);
+  //  source.apply(
+  //      queryName + ".WriteAvroEvents",
+  //      AvroIO.write(Event.class).to(filename + "/event").withSuffix(".avro"));
+  //  source
+  //      .apply(NexmarkQueryUtil.JUST_BIDS)
+  //      .apply(
+  //          queryName + ".WriteAvroBids",
+  //          AvroIO.write(Bid.class).to(filename + "/bid").withSuffix(".avro"));
+  //  source
+  //      .apply(NexmarkQueryUtil.JUST_NEW_AUCTIONS)
+  //      .apply(
+  //          queryName + ".WriteAvroAuctions",
+  //          AvroIO.write(Auction.class).to(filename + "/auction").withSuffix(".avro"));
+  //  source
+  //      .apply(NexmarkQueryUtil.JUST_NEW_PERSONS)
+  //      .apply(
+  //          queryName + ".WriteAvroPeople",
+  //          AvroIO.write(Person.class).to(filename + "/person").withSuffix(".avro"));
+  //}
 
   /** Send {@code formattedResults} to text files. */
   private void sinkResultsToText(PCollection<String> formattedResults, long now) {
@@ -907,17 +871,20 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
   // ================================================================================
 
   /** Return source of events for this run, or null if we are simply publishing events to Pubsub. */
-  private PCollection<Event> createSource(Pipeline p, final Instant now) throws IOException {
-    PCollection<Event> source = null;
+  private PCollection<LatTSWrapped<Event>> createSource(Pipeline p, final Instant now) throws IOException {
+    PCollection<LatTSWrapped<Event>> source = null;
 
     switch (configuration.sourceType) {
       case DIRECT:
         source = sourceEventsFromSynthetic(p);
         break;
       case AVRO:
-        source = sourceEventsFromAvro(p);
-        break;
+          // fall through
+      //  source = sourceEventsFromAvro(p);
+      //  break;
       case KAFKA:
+        NexmarkUtils.console("======================= Case Kafka!");
+        // fall through
       case PUBSUB:
         if (configuration.sourceType == SourceType.PUBSUB) {
           setupPubSubResources(now.getMillis());
@@ -930,17 +897,19 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
           case PUBLISH_ONLY:
             {
               // Send synthesized events to Kafka or Pubsub in this job.
-              PCollection<Event> events =
+              PCollection<LatTSWrapped<Event>> events =
                   sourceEventsFromSynthetic(p)
                       .apply(queryName + ".Snoop", NexmarkUtils.snoop(queryName));
               if (configuration.sourceType == NexmarkUtils.SourceType.KAFKA) {
                 sinkEventsToKafka(events);
-              } else { // pubsub
-                sinkEventsToPubsub(events);
               }
+              //else { // pubsub
+              //  sinkEventsToPubsub(events);
+              //}
             }
             break;
           case COMBINED:
+            NexmarkUtils.console("======================= Case Combined pubsubmode!");
             // Send synthesized events to Kafka or Pubsub in separate publisher job.
             // We won't start the main pipeline until the publisher has sent the pre-load events.
             // We'll shutdown the publisher job when we notice the main job has finished.
@@ -949,14 +918,15 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
                   Pipeline sp = Pipeline.create(publishOnlyOptions);
                   NexmarkUtils.setupPipeline(configuration.coderStrategy, sp);
                   publisherMonitor = new Monitor<>(queryName, "publisher");
-                  PCollection<Event> events =
+                  PCollection<LatTSWrapped<Event>> events =
                       sourceEventsFromSynthetic(sp)
                           .apply(queryName + ".Monitor", publisherMonitor.getTransform());
                   if (configuration.sourceType == NexmarkUtils.SourceType.KAFKA) {
                     sinkEventsToKafka(events);
-                  } else { // pubsub
-                    sinkEventsToPubsub(events);
                   }
+                  //else { // pubsub
+                  //  sinkEventsToPubsub(events);
+                  //}
                   publisherResult = sp.run();
                   NexmarkUtils.console("Publisher job is started.");
                 });
@@ -981,9 +951,10 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
                 // it will be ignored.
                 source =
                     sourceEventsFromKafka(p, configuration.pubSubMode == COMBINED ? now : null);
-              } else {
-                source = sourceEventsFromPubsub(p);
               }
+              //else {
+              //  source = sourceEventsFromPubsub(p);
+              //}
             }
             break;
         }
@@ -1007,7 +978,7 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
   }
 
   /** Consume {@code results}. */
-  private void sink(PCollection<TimestampedValue<KnownSize>> results, long now) {
+  private void sink(PCollection<TimestampedValue<LatTSWrapped<KnownSize>>> results, long now) {
     if (configuration.sinkType == NexmarkUtils.SinkType.COUNT_ONLY) {
       // Avoid the cost of formatting the results.
       results.apply(queryName + ".DevNull", NexmarkUtils.devNull(queryName));
@@ -1119,22 +1090,12 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
         options.setTempLocation(options.getTempLocation() + "/" + queryName);
       }
 
-      NexmarkQueryModel model = getNexmarkQueryModel();
-
-      if (options.getJustModelResultRate()) {
-        if (model == null) {
-          throw new RuntimeException(String.format("No model for %s", queryName));
-        }
-        modelResultRates(model);
-        return null;
-      }
-
       final Instant now = Instant.now();
       Pipeline p = Pipeline.create(options);
       NexmarkUtils.setupPipeline(configuration.coderStrategy, p);
 
       // Generate events.
-      PCollection<Event> source = createSource(p, now);
+      PCollection<LatTSWrapped<Event>> source = createSource(p, now);
 
       if (query.getTransform().needsSideInput()) {
         query.getTransform().setSideInput(NexmarkUtils.prepareSideInput(p, configuration));
@@ -1149,43 +1110,21 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
       if (source != null) {
         // Optionally sink events in Avro format.
         // (Query results are ignored).
-        if (configuration.sinkType == NexmarkUtils.SinkType.AVRO) {
-          sinkEventsToAvro(source);
-        }
-
-        // Query 10 logs all events to Google Cloud storage files. It could generate a lot of logs,
-        // so, set parallelism. Also set the output path where to write log files.
-        if (configuration.query == NexmarkQueryName.LOG_TO_SHARDED_FILES) {
-          String path = null;
-          if (options.getOutputPath() != null && !options.getOutputPath().isEmpty()) {
-            path = logsDir(now.getMillis());
-          }
-          ((Query10) query.getTransform()).setOutputPath(path);
-          ((Query10) query.getTransform()).setMaxNumWorkers(maxNumWorkers());
-        }
+        //if (configuration.sinkType == NexmarkUtils.SinkType.AVRO) {
+        //  sinkEventsToAvro(source);
+        //}
 
         // Apply query.
-        PCollection<TimestampedValue<KnownSize>> results =
-            (PCollection<TimestampedValue<KnownSize>>) source.apply(query);
+        PCollection<? extends TimestampedValue<? extends LatTSWrapped<? extends KnownSize>>> results = source.apply(query);
 
-        if (options.getAssertCorrectness()) {
-          if (model == null) {
-            throw new RuntimeException(String.format("No model for %s", queryName));
-          }
-          // We know all our streams have a finite number of elements.
-          results.setIsBoundedInternal(PCollection.IsBounded.BOUNDED);
-          // If we have a finite number of events then assert our pipeline's
-          // results match those of a model using the same sequence of events.
-          PAssert.that(results).satisfies(model.assertionFor());
-        }
 
         // Output results.
-        sink(results, now.getMillis());
+        sink((PCollection<TimestampedValue<LatTSWrapped<KnownSize>>>) results, now.getMillis());
       }
 
       mainResult = p.run();
       mainResult.waitUntilFinish(Duration.standardSeconds(configuration.streamTimeout));
-      return monitor(query);
+      return monitor(query); //TODO for flink jobs this does not make sense. run finishes only after job finishes
     } finally {
       if (pubsubHelper != null) {
         pubsubHelper.cleanup();
@@ -1200,42 +1139,14 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
     return SQL.equalsIgnoreCase(options.getQueryLanguage());
   }
 
-  private NexmarkQueryModel getNexmarkQueryModel() {
-    return models.get(configuration.query);
-  }
-
   private NexmarkQuery<?> getNexmarkQuery() {
     return queries.get(configuration.query);
   }
 
-  private Map<NexmarkQueryName, NexmarkQueryModel> createQueryModels() {
-    return isSql() ? createSqlQueryModels() : createJavaQueryModels();
-  }
-
-  private Map<NexmarkQueryName, NexmarkQueryModel> createSqlQueryModels() {
-    return ImmutableMap.of();
-  }
-
-  private Map<NexmarkQueryName, NexmarkQueryModel> createJavaQueryModels() {
-    return ImmutableMap.<NexmarkQueryName, NexmarkQueryModel>builder()
-        .put(NexmarkQueryName.PASSTHROUGH, new Query0Model(configuration))
-        .put(NexmarkQueryName.CURRENCY_CONVERSION, new Query1Model(configuration))
-        .put(NexmarkQueryName.SELECTION, new Query2Model(configuration))
-        .put(NexmarkQueryName.LOCAL_ITEM_SUGGESTION, new Query3Model(configuration))
-        .put(NexmarkQueryName.AVERAGE_PRICE_FOR_CATEGORY, new Query4Model(configuration))
-        .put(NexmarkQueryName.HOT_ITEMS, new Query5Model(configuration))
-        .put(NexmarkQueryName.AVERAGE_SELLING_PRICE_BY_SELLER, new Query6Model(configuration))
-        .put(NexmarkQueryName.HIGHEST_BID, new Query7Model(configuration))
-        .put(NexmarkQueryName.MONITOR_NEW_USERS, new Query8Model(configuration))
-        .put(NexmarkQueryName.WINNING_BIDS, new Query9Model(configuration))
-        .put(NexmarkQueryName.BOUNDED_SIDE_INPUT_JOIN, new BoundedSideInputJoinModel(configuration))
-        .put(NexmarkQueryName.SESSION_SIDE_INPUT_JOIN, new SessionSideInputJoinModel(configuration))
-        .build();
-  }
 
   private Map<NexmarkQueryName, NexmarkQuery> createQueries() {
     Map<NexmarkQueryName, NexmarkQuery> defaultQueries =
-        isSql() ? createSqlQueries() : createJavaQueries();
+        isSql() ? createJavaQueries() : createJavaQueries();
     Set<NexmarkQueryName> skippableQueries = getSkippableQueries();
     return ImmutableMap.copyOf(
         Maps.filterKeys(defaultQueries, query -> !skippableQueries.contains(query)));
@@ -1252,37 +1163,37 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
     return skipQueries;
   }
 
-  private Map<NexmarkQueryName, NexmarkQuery> createSqlQueries() {
-    return ImmutableMap.<NexmarkQueryName, NexmarkQuery>builder()
-        .put(NexmarkQueryName.PASSTHROUGH, new NexmarkQuery(configuration, new SqlQuery0()))
-        .put(NexmarkQueryName.CURRENCY_CONVERSION, new NexmarkQuery(configuration, new SqlQuery1()))
-        .put(
-            NexmarkQueryName.SELECTION,
-            new NexmarkQuery(configuration, new SqlQuery2(configuration.auctionSkip)))
-        .put(
-            NexmarkQueryName.LOCAL_ITEM_SUGGESTION,
-            new NexmarkQuery(configuration, new SqlQuery3(configuration)))
+  //private Map<NexmarkQueryName, NexmarkQuery> createSqlQueries() {
+  //  return ImmutableMap.<NexmarkQueryName, NexmarkQuery>builder()
+  //      .put(NexmarkQueryName.PASSTHROUGH, new NexmarkQuery(configuration, new SqlQuery0()))
+  //      .put(NexmarkQueryName.CURRENCY_CONVERSION, new NexmarkQuery(configuration, new SqlQuery1()))
+  //      .put(
+  //          NexmarkQueryName.SELECTION,
+  //          new NexmarkQuery(configuration, new SqlQuery2(configuration.auctionSkip)))
+  //      .put(
+  //          NexmarkQueryName.LOCAL_ITEM_SUGGESTION,
+  //          new NexmarkQuery(configuration, new SqlQuery3(configuration)))
 
-        // SqlQuery5 is disabled for now, uses non-equi-joins,
-        // never worked right, was giving incorrect results.
-        // Gets rejected after PR/8301, causing failures.
-        //
-        // See:
-        //   https://issues.apache.org/jira/browse/BEAM-7072
-        //   https://github.com/apache/beam/pull/8301
-        //   https://github.com/apache/beam/pull/8422#issuecomment-487676350
-        //
-        //        .put(
-        //            NexmarkQueryName.HOT_ITEMS,
-        //            new NexmarkQuery(configuration, new SqlQuery5(configuration)))
-        .put(
-            NexmarkQueryName.HIGHEST_BID,
-            new NexmarkQuery(configuration, new SqlQuery7(configuration)))
-        .put(
-            NexmarkQueryName.BOUNDED_SIDE_INPUT_JOIN,
-            new NexmarkQuery(configuration, new SqlBoundedSideInputJoin(configuration)))
-        .build();
-  }
+  //      // SqlQuery5 is disabled for now, uses non-equi-joins,
+  //      // never worked right, was giving incorrect results.
+  //      // Gets rejected after PR/8301, causing failures.
+  //      //
+  //      // See:
+  //      //   https://issues.apache.org/jira/browse/BEAM-7072
+  //      //   https://github.com/apache/beam/pull/8301
+  //      //   https://github.com/apache/beam/pull/8422#issuecomment-487676350
+  //      //
+  //      //        .put(
+  //      //            NexmarkQueryName.HOT_ITEMS,
+  //      //            new NexmarkQuery(configuration, new SqlQuery5(configuration)))
+  //      .put(
+  //          NexmarkQueryName.HIGHEST_BID,
+  //          new NexmarkQuery(configuration, new SqlQuery7(configuration)))
+  //      .put(
+  //          NexmarkQueryName.BOUNDED_SIDE_INPUT_JOIN,
+  //          new NexmarkQuery(configuration, new SqlBoundedSideInputJoin(configuration)))
+  //      .build();
+  //}
 
   private Map<NexmarkQueryName, NexmarkQuery> createJavaQueries() {
     return ImmutableMap.<NexmarkQueryName, NexmarkQuery>builder()
@@ -1310,12 +1221,6 @@ public class NexmarkLauncher<OptionT extends NexmarkOptions> {
         .put(
             NexmarkQueryName.WINNING_BIDS,
             new NexmarkQuery(configuration, new Query9(configuration)))
-        .put(
-            NexmarkQueryName.LOG_TO_SHARDED_FILES,
-            new NexmarkQuery(configuration, new Query10(configuration)))
-        .put(
-            NexmarkQueryName.USER_SESSIONS,
-            new NexmarkQuery(configuration, new Query11(configuration)))
         .put(
             NexmarkQueryName.PROCESSING_TIME_WINDOWS,
             new NexmarkQuery(configuration, new Query12(configuration)))

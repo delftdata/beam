@@ -357,7 +357,7 @@ public interface NexmarkOptions
 
   void setProbDelayedEvent(Double probDelayedEvent);
 
-  @Description("Maximum size of each log file (in events). For Query10 only.")
+  @Description("Maximum size of each log file (in events). For Query.10 only.")
   @Nullable
   Integer getMaxLogEvents();
 
@@ -388,6 +388,7 @@ public interface NexmarkOptions
   Long getOutOfOrderGroupSize();
 
   void setOutOfOrderGroupSize(Long outOfOrderGroupSize);
+
 
   @Description("If false, do not add the Monitor and Snoop transforms.")
   @Nullable

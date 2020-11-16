@@ -20,6 +20,7 @@ package org.apache.beam.sdk.nexmark.queries;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.nexmark.model.Event;
 import org.apache.beam.sdk.nexmark.model.KnownSize;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
@@ -32,7 +33,7 @@ import org.apache.beam.sdk.values.PCollection;
  * <p>A query transform may request a faked side input to join with ids.
  */
 public abstract class NexmarkQueryTransform<T extends KnownSize>
-    extends PTransform<PCollection<Event>, PCollection<T>> {
+    extends PTransform<PCollection<LatTSWrapped<Event>>, PCollection<LatTSWrapped<T>>> {
 
   private transient PCollection<KV<Long, String>> sideInput = null;
 

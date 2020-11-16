@@ -21,6 +21,7 @@ import java.io.Serializable;
 import org.apache.beam.runners.core.StateInternals;
 import org.apache.beam.runners.core.StepContext;
 import org.apache.beam.runners.core.TimerInternals;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
 
 /** Serializable {@link StepContext} that does nothing. */
 public class NoOpStepContext implements StepContext, Serializable {
@@ -35,4 +36,6 @@ public class NoOpStepContext implements StepContext, Serializable {
   public TimerInternals timerInternals() {
     throw new UnsupportedOperationException("timerInternals is not supported");
   }
+
+
 }

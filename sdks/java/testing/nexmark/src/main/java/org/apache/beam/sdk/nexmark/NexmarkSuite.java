@@ -38,13 +38,13 @@ public enum NexmarkSuite {
   STRESS(stress()),
 
   /** As for SMOKE, but with 1b/100m events. */
-  FULL_THROTTLE(fullThrottle()),
+  FULL_THROTTLE(fullThrottle());
 
-  /** Query 10, but slow and small for debugging. */
-  SMALL_LOGGER(smallLogger()),
+  //** Query 10, but slow and small for debugging. */
+  //SMALL_LOGGER(smallLogger()),
 
   /** Query 10, at high volume with no autoscaling. */
-  LONG_RUNNING_LOGGER(longRunningLogger());
+  //LONG_RUNNING_LOGGER(longRunningLogger());
 
   private static List<NexmarkConfiguration> defaultConf() {
     List<NexmarkConfiguration> configurations = new ArrayList<>();
@@ -66,6 +66,7 @@ public enum NexmarkSuite {
         configuration.numEvents /= 10;
       }
       configurations.add(configuration);
+
     }
     return configurations;
   }
@@ -90,53 +91,53 @@ public enum NexmarkSuite {
     return configurations;
   }
 
-  private static List<NexmarkConfiguration> smallLogger() {
-    NexmarkConfiguration configuration = NexmarkConfiguration.DEFAULT.copy();
-    configuration.numEventGenerators = 1;
+  //private static List<NexmarkConfiguration> smallLogger() {
+  //  NexmarkConfiguration configuration = NexmarkConfiguration.DEFAULT.copy();
+  //  configuration.numEventGenerators = 1;
 
-    configuration.query = NexmarkQueryName.LOG_TO_SHARDED_FILES;
-    configuration.isRateLimited = true;
-    configuration.sourceType = NexmarkUtils.SourceType.PUBSUB;
-    configuration.numEvents = 0; // as many as possible without overflow.
-    configuration.avgPersonByteSize = 500;
-    configuration.avgAuctionByteSize = 500;
-    configuration.avgBidByteSize = 500;
-    configuration.windowSizeSec = 30;
-    configuration.occasionalDelaySec = 360;
-    configuration.probDelayedEvent = 0.001;
-    configuration.useWallclockEventTime = true;
-    configuration.firstEventRate = 100;
-    configuration.nextEventRate = 100;
-    configuration.maxLogEvents = 15000;
+  //  configuration.query = NexmarkQueryName.LOG_TO_SHARDED_FILES;
+  //  configuration.isRateLimited = true;
+  //  configuration.sourceType = NexmarkUtils.SourceType.PUBSUB;
+  //  configuration.numEvents = 0; // as many as possible without overflow.
+  //  configuration.avgPersonByteSize = 500;
+  //  configuration.avgAuctionByteSize = 500;
+  //  configuration.avgBidByteSize = 500;
+  //  configuration.windowSizeSec = 30;
+  //  configuration.occasionalDelaySec = 360;
+  //  configuration.probDelayedEvent = 0.001;
+  //  configuration.useWallclockEventTime = true;
+  //  configuration.firstEventRate = 100;
+  //  configuration.nextEventRate = 100;
+  //  configuration.maxLogEvents = 15000;
 
-    List<NexmarkConfiguration> configurations = new ArrayList<>();
-    configurations.add(configuration);
-    return configurations;
-  }
+  //  List<NexmarkConfiguration> configurations = new ArrayList<>();
+  //  configurations.add(configuration);
+  //  return configurations;
+  //}
 
-  private static List<NexmarkConfiguration> longRunningLogger() {
-    NexmarkConfiguration configuration = NexmarkConfiguration.DEFAULT.copy();
-    configuration.numEventGenerators = 10;
+  //private static List<NexmarkConfiguration> longRunningLogger() {
+  //  NexmarkConfiguration configuration = NexmarkConfiguration.DEFAULT.copy();
+  //  configuration.numEventGenerators = 10;
 
-    configuration.query = NexmarkQueryName.LOG_TO_SHARDED_FILES;
-    configuration.isRateLimited = true;
-    configuration.sourceType = NexmarkUtils.SourceType.PUBSUB;
-    configuration.numEvents = 0; // as many as possible without overflow.
-    configuration.avgPersonByteSize = 500;
-    configuration.avgAuctionByteSize = 500;
-    configuration.avgBidByteSize = 500;
-    configuration.windowSizeSec = 300;
-    configuration.occasionalDelaySec = 360;
-    configuration.probDelayedEvent = 0.001;
-    configuration.useWallclockEventTime = true;
-    configuration.firstEventRate = 60000;
-    configuration.nextEventRate = 60000;
-    configuration.maxLogEvents = 15000;
+  //  configuration.query = NexmarkQueryName.LOG_TO_SHARDED_FILES;
+  //  configuration.isRateLimited = true;
+  //  configuration.sourceType = NexmarkUtils.SourceType.PUBSUB;
+  //  configuration.numEvents = 0; // as many as possible without overflow.
+  //  configuration.avgPersonByteSize = 500;
+  //  configuration.avgAuctionByteSize = 500;
+  //  configuration.avgBidByteSize = 500;
+  //  configuration.windowSizeSec = 300;
+  //  configuration.occasionalDelaySec = 360;
+  //  configuration.probDelayedEvent = 0.001;
+  //  configuration.useWallclockEventTime = true;
+  //  configuration.firstEventRate = 60000;
+  //  configuration.nextEventRate = 60000;
+  //  configuration.maxLogEvents = 15000;
 
-    List<NexmarkConfiguration> configurations = new ArrayList<>();
-    configurations.add(configuration);
-    return configurations;
-  }
+  //  List<NexmarkConfiguration> configurations = new ArrayList<>();
+  //  configurations.add(configuration);
+  //  return configurations;
+  //}
 
   private final List<NexmarkConfiguration> configurations;
 
@@ -151,10 +152,17 @@ public enum NexmarkSuite {
    */
   public Set<NexmarkConfiguration> getConfigurations(NexmarkOptions options) {
     Set<NexmarkConfiguration> results = new LinkedHashSet<>();
-    for (NexmarkConfiguration configuration : configurations) {
-      NexmarkConfiguration result = configuration.copy();
+    if(options.getQuery() != null){
+      NexmarkConfiguration queryConfig = configurations.stream().filter(x -> NexmarkQueryName.fromId(options.getQuery()).equals(x.query)).findFirst().get();
+      NexmarkConfiguration result = queryConfig.copy();
       result.overrideFromOptions(options);
       results.add(result);
+    }else {
+      for (NexmarkConfiguration configuration : configurations) {
+        NexmarkConfiguration result = configuration.copy();
+        result.overrideFromOptions(options);
+        results.add(result);
+      }
     }
     return results;
   }

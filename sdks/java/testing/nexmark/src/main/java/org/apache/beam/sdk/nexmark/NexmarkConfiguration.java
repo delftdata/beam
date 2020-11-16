@@ -187,7 +187,7 @@ public class NexmarkConfiguration implements Serializable {
   /** Probability that an event will be delayed by delayS. */
   @JsonProperty public double probDelayedEvent = 0.1;
 
-  /** Maximum size of each log file (in events). For Query10 only. */
+  /** Maximum size of each log file (in events). For Query.10 only. */
   @JsonProperty public int maxLogEvents = 100_000;
 
   /** If true, use pub/sub publish time instead of event time. */
@@ -198,6 +198,7 @@ public class NexmarkConfiguration implements Serializable {
    * 1000 events per generator are emitted in pseudo-random order.
    */
   @JsonProperty public long outOfOrderGroupSize = 1;
+
 
   /** Replace any properties of this configuration which have been supplied by the command line. */
   public void overrideFromOptions(NexmarkOptions options) {
@@ -548,7 +549,8 @@ public class NexmarkConfiguration implements Serializable {
         probDelayedEvent,
         maxLogEvents,
         usePubsubPublishTime,
-        outOfOrderGroupSize);
+        outOfOrderGroupSize
+        );
   }
 
   @Override

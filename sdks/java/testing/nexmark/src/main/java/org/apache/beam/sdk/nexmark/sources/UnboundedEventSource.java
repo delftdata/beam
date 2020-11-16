@@ -28,6 +28,7 @@ import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.UnboundedSource;
 import org.apache.beam.sdk.nexmark.NexmarkUtils;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.nexmark.sources.generator.Generator;
 import org.apache.beam.sdk.nexmark.sources.generator.GeneratorCheckpoint;
 import org.apache.beam.sdk.nexmark.sources.generator.GeneratorConfig;
@@ -46,7 +47,7 @@ import org.slf4j.LoggerFactory;
  * the overall rate respect the {@code interEventDelayUs} period if possible. Otherwise, events are
  * returned every time the system asks for one.
  */
-public class UnboundedEventSource extends UnboundedSource<Event, GeneratorCheckpoint> {
+public class UnboundedEventSource extends UnboundedSource<LatTSWrapped<Event>, GeneratorCheckpoint> {
   private static final Duration BACKLOG_PERIOD = Duration.standardSeconds(30);
   private static final Logger LOG = LoggerFactory.getLogger(UnboundedEventSource.class);
 
@@ -74,7 +75,7 @@ public class UnboundedEventSource extends UnboundedSource<Event, GeneratorCheckp
   }
 
   /** A reader to pull events from the generator. */
-  private class EventReader extends UnboundedReader<Event> {
+  private class EventReader extends UnboundedReader<LatTSWrapped<Event>> {
     /** Generator we are reading from. */
     private final Generator generator;
 
@@ -237,11 +238,11 @@ public class UnboundedEventSource extends UnboundedSource<Event, GeneratorCheckp
     }
 
     @Override
-    public Event getCurrent() {
+    public LatTSWrapped<Event> getCurrent() {
       if (currentEvent == null) {
         throw new NoSuchElementException();
       }
-      return currentEvent.getValue();
+      return LatTSWrapped.of(currentEvent.getValue());
     }
 
     @Override
@@ -321,8 +322,8 @@ public class UnboundedEventSource extends UnboundedSource<Event, GeneratorCheckp
   }
 
   @Override
-  public Coder<Event> getDefaultOutputCoder() {
-    return Event.CODER;
+  public Coder<LatTSWrapped<Event>> getDefaultOutputCoder() {
+    return LatTSWrapped.LatTSWrappedValueCoder.of(Event.CODER);
   }
 
   @Override

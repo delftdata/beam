@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Random;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.values.TimestampedValue;
 import org.joda.time.DateTime;
 import org.joda.time.Instant;
@@ -77,7 +78,7 @@ public class Generator implements Iterator<TimestampedValue<Event>>, Serializabl
      */
     public NextEvent withDelay(long delayMs) {
       return new NextEvent(
-          wallclockTimestamp + delayMs, eventTimestamp, event.withAnnotation("LATE"), watermark);
+          wallclockTimestamp + delayMs, eventTimestamp, event.withAnnotation("LATE"),  watermark);
     }
 
     @Override

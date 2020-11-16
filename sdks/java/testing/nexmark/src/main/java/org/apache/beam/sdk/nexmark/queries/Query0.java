@@ -25,6 +25,7 @@ import org.apache.beam.sdk.coders.CoderException;
 import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
@@ -39,14 +40,14 @@ public class Query0 extends NexmarkQueryTransform<Event> {
   }
 
   @Override
-  public PCollection<Event> expand(PCollection<Event> events) {
-    final Coder<Event> coder = events.getCoder();
+  public PCollection<LatTSWrapped<Event>> expand(PCollection<LatTSWrapped<Event>> events) {
+    final Coder<LatTSWrapped<Event>> coder = events.getCoder();
     return events
         // Force round trip through coder.
         .apply(
         name + ".Serialize",
         ParDo.of(
-            new DoFn<Event, Event>() {
+            new DoFn<LatTSWrapped<Event>, LatTSWrapped<Event>>() {
               private final Counter bytesMetric = Metrics.counter(name, "bytes");
 
               @ProcessElement
@@ -56,7 +57,7 @@ public class Query0 extends NexmarkQueryTransform<Event> {
                 byte[] byteArray = outStream.toByteArray();
                 bytesMetric.inc((long) byteArray.length);
                 ByteArrayInputStream inStream = new ByteArrayInputStream(byteArray);
-                Event event = coder.decode(inStream, Coder.Context.OUTER);
+                LatTSWrapped<Event> event = coder.decode(inStream, Coder.Context.OUTER);
                 c.output(event);
               }
             }));

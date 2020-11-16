@@ -24,6 +24,7 @@ import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.NexmarkUtils;
 import org.apache.beam.sdk.nexmark.model.Event;
 import org.apache.beam.sdk.nexmark.model.KnownSize;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
@@ -31,7 +32,7 @@ import org.apache.beam.sdk.values.TimestampedValue;
 
 /** Wrapper for 'NEXmark' query transforms that adds monitoring and snooping. */
 public final class NexmarkQuery<T extends KnownSize>
-    extends PTransform<PCollection<Event>, PCollection<? extends TimestampedValue<T>>> {
+    extends PTransform<PCollection<LatTSWrapped<Event>>, PCollection<TimestampedValue<LatTSWrapped<T>>>> {
 
   final NexmarkConfiguration configuration;
   public final Monitor<Event> eventMonitor;
@@ -63,35 +64,35 @@ public final class NexmarkQuery<T extends KnownSize>
   }
 
   @Override
-  public PCollection<TimestampedValue<T>> expand(PCollection<Event> events) {
+  public PCollection<TimestampedValue<LatTSWrapped<T>>> expand(PCollection<LatTSWrapped<Event>> events) {
 
-    if (configuration.debug) {
-      events =
-          events
-              // Monitor events as they go by.
-              .apply(name + ".Monitor", eventMonitor.getTransform())
-              // Count each type of event.
-              .apply(name + ".Snoop", NexmarkUtils.snoop(name));
-    }
+    //if (configuration.debug) {
+    //  events =
+    //      events
+    //          // Monitor events as they go by.
+    //          .apply(name + ".Monitor", eventMonitor.getTransform())
+    //          // Count each type of event.
+    //          .apply(name + ".Snoop", NexmarkUtils.snoop(name));
+    //}
 
-    if (configuration.cpuDelayMs > 0) {
-      // Slow down by pegging one core at 100%.
-      events =
-          events.apply(name + ".CpuDelay", NexmarkUtils.cpuDelay(name, configuration.cpuDelayMs));
-    }
+    //if (configuration.cpuDelayMs > 0) {
+    //  // Slow down by pegging one core at 100%.
+    //  events =
+    //      events.apply(name + ".CpuDelay", NexmarkUtils.cpuDelay(name, configuration.cpuDelayMs));
+    //}
 
-    if (configuration.diskBusyBytes > 0) {
-      // Slow down by forcing bytes to durable store.
-      events = events.apply(name + ".DiskBusy", NexmarkUtils.diskBusy(configuration.diskBusyBytes));
-    }
+    //if (configuration.diskBusyBytes > 0) {
+    //  // Slow down by forcing bytes to durable store.
+    //  events = events.apply(name + ".DiskBusy", NexmarkUtils.diskBusy(configuration.diskBusyBytes));
+    //}
 
     // Run the query.
-    PCollection<T> queryResults = events.apply(transform);
+    PCollection<LatTSWrapped<T>> queryResults = events.apply(transform);
 
-    if (configuration.debug) {
-      // Monitor results as they go by.
-      queryResults = queryResults.apply(name + ".Debug", resultMonitor.getTransform());
-    }
+    //if (configuration.debug) {
+    //  // Monitor results as they go by.
+    //  queryResults = queryResults.apply(name + ".Debug", resultMonitor.getTransform());
+    //}
 
     // Timestamp the query results.
     return queryResults.apply(name + ".Stamp", NexmarkUtils.stamp(name));

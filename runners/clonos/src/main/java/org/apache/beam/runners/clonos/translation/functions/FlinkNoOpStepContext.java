@@ -20,6 +20,7 @@ package org.apache.beam.runners.clonos.translation.functions;
 import org.apache.beam.runners.core.StateInternals;
 import org.apache.beam.runners.core.StepContext;
 import org.apache.beam.runners.core.TimerInternals;
+import org.apache.beam.sdk.transforms.workaround.RandomService;
 
 /** A {@link StepContext} for Flink Batch Runner execution. */
 public class FlinkNoOpStepContext implements StepContext {
@@ -33,4 +34,5 @@ public class FlinkNoOpStepContext implements StepContext {
   public TimerInternals timerInternals() {
     throw new UnsupportedOperationException("timerInternals is not supported");
   }
+
 }

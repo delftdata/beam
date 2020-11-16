@@ -23,6 +23,7 @@ import org.apache.beam.sdk.nexmark.model.Auction;
 import org.apache.beam.sdk.nexmark.model.Event;
 import org.apache.beam.sdk.nexmark.model.IdNameReserve;
 import org.apache.beam.sdk.nexmark.model.Person;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
@@ -55,9 +56,9 @@ public class Query8 extends NexmarkQueryTransform<IdNameReserve> {
   }
 
   @Override
-  public PCollection<IdNameReserve> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<IdNameReserve>> expand(PCollection<LatTSWrapped<Event>> events) {
     // Window and key new people by their id.
-    PCollection<KV<Long, Person>> personsById =
+    PCollection<KV<Long, LatTSWrapped<Person>>> personsById =
         events
             .apply(NexmarkQueryUtil.JUST_NEW_PERSONS)
             .apply(
@@ -66,7 +67,7 @@ public class Query8 extends NexmarkQueryTransform<IdNameReserve> {
             .apply("PersonById", NexmarkQueryUtil.PERSON_BY_ID);
 
     // Window and key new auctions by their id.
-    PCollection<KV<Long, Auction>> auctionsBySeller =
+    PCollection<KV<Long, LatTSWrapped<Auction>>> auctionsBySeller =
         events
             .apply(NexmarkQueryUtil.JUST_NEW_AUCTIONS)
             .apply(
@@ -81,19 +82,24 @@ public class Query8 extends NexmarkQueryTransform<IdNameReserve> {
         .apply(
             name + ".Select",
             ParDo.of(
-                new DoFn<KV<Long, CoGbkResult>, IdNameReserve>() {
+                new DoFn<KV<Long, CoGbkResult>, LatTSWrapped<IdNameReserve>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
                     @Nullable
-                    Person person =
+                    LatTSWrapped<Person> person =
                         c.element().getValue().getOnly(NexmarkQueryUtil.PERSON_TAG, null);
                     if (person == null) {
                       // Person was not created in last window period.
                       return;
                     }
-                    for (Auction auction :
+                    long maxTS = Long.MIN_VALUE;
+
+                    for (LatTSWrapped<Auction> auction :
+                            c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG))
+                      maxTS = maxTS > auction.getLatTS() ? maxTS : auction.getLatTS();
+                    for (LatTSWrapped<Auction> auction :
                         c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG)) {
-                      c.output(new IdNameReserve(person.id, person.name, auction.reserve));
+                      c.output(LatTSWrapped.of(new IdNameReserve(person.getValue().id, person.getValue().name, auction.getValue().reserve), maxTS));
                     }
                   }
                 }));

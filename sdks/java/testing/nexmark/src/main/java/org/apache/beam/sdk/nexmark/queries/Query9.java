@@ -20,6 +20,7 @@ package org.apache.beam.sdk.nexmark.queries;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.AuctionBid;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.Filter;
 import org.apache.beam.sdk.values.PCollection;
 
@@ -36,7 +37,7 @@ public class Query9 extends NexmarkQueryTransform<AuctionBid> {
   }
 
   @Override
-  public PCollection<AuctionBid> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<AuctionBid>> expand(PCollection<LatTSWrapped<Event>> events) {
     return events.apply(Filter.by(new AuctionOrBid())).apply(new WinningBids(name, configuration));
   }
 }

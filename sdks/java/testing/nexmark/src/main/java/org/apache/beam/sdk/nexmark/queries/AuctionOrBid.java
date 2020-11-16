@@ -18,12 +18,13 @@
 package org.apache.beam.sdk.nexmark.queries;
 
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 
 /** A predicate to filter for only auctions and bids. */
-public class AuctionOrBid implements SerializableFunction<Event, Boolean> {
+public class AuctionOrBid implements SerializableFunction<LatTSWrapped<Event>, Boolean> {
   @Override
-  public Boolean apply(Event input) {
-    return input.bid != null || input.newAuction != null;
+  public Boolean apply(LatTSWrapped<Event> input) {
+    return input.getValue().bid != null || input.getValue().newAuction != null;
   }
 }

@@ -23,6 +23,7 @@ import java.util.Map;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -61,7 +62,7 @@ public class SessionSideInputJoin extends NexmarkQueryTransform<Bid> {
   }
 
   @Override
-  public PCollection<Bid> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<Bid>> expand(PCollection<LatTSWrapped<Event>> events) {
 
     checkState(getSideInput() != null, "Configuration error: side input is null");
 
@@ -72,7 +73,7 @@ public class SessionSideInputJoin extends NexmarkQueryTransform<Bid> {
         .apply(NexmarkQueryUtil.JUST_BIDS)
 
         // Sessionize on bidtime keyed by bidder id (they might bid on multiple auctions)
-        .apply(WithKeys.of(new SimpleFunction<Bid, Long>(bid -> bid.bidder) {}))
+        .apply(WithKeys.of(new SimpleFunction<LatTSWrapped<Bid>, Long>(bid -> bid.getValue().bidder) {}))
         .apply(Window.into(Sessions.withGapDuration(configuration.sessionGap)))
         .apply(GroupByKey.create())
 
@@ -81,7 +82,7 @@ public class SessionSideInputJoin extends NexmarkQueryTransform<Bid> {
         .apply(
             name + ".JoinToFiles",
             ParDo.of(
-                    new DoFn<KV<Long, Iterable<Bid>>, Bid>() {
+                    new DoFn<KV<Long, Iterable<LatTSWrapped<Bid>>>, LatTSWrapped<Bid>>() {
                       @ProcessElement
                       public void processElement(ProcessContext c, BoundedWindow untypedWindow) {
                         IntervalWindow window = (IntervalWindow) untypedWindow;
@@ -90,14 +91,22 @@ public class SessionSideInputJoin extends NexmarkQueryTransform<Bid> {
                             c.sideInput(sideInputMap)
                                 .get(c.element().getKey() % configuration.sideInputRowCount);
 
-                        for (Bid bid : c.element().getValue()) {
-                          c.output(
+                        long maxTS = Long.MIN_VALUE;
+
+                        for (LatTSWrapped<Bid> wrappedBid : c.element().getValue())
+                          maxTS = Math.max(maxTS, wrappedBid.getLatTS());
+
+
+                        for (LatTSWrapped<Bid> wrappedBid : c.element().getValue()) {
+                          Bid bid = wrappedBid.getValue();
+
+                          c.output(LatTSWrapped.of(
                               new Bid(
                                   bid.auction,
                                   bid.bidder,
                                   bid.price,
                                   bid.dateTime,
-                                  extra + ":" + window.start() + ":" + window.end()));
+                                  extra + ":" + window.start() + ":" + window.end()), maxTS));
                         }
                       }
                     })

@@ -19,11 +19,9 @@ package org.apache.beam.sdk.nexmark.queries;
 
 import org.apache.beam.sdk.nexmark.Monitor;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
-import org.apache.beam.sdk.nexmark.model.Auction;
-import org.apache.beam.sdk.nexmark.model.AuctionBid;
-import org.apache.beam.sdk.nexmark.model.Bid;
-import org.apache.beam.sdk.nexmark.model.CategoryPrice;
-import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.*;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSPropagatingMean;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Filter;
 import org.apache.beam.sdk.transforms.Mean;
@@ -60,7 +58,7 @@ import org.joda.time.Duration;
  * </ul>
  */
 public class Query4 extends NexmarkQueryTransform<CategoryPrice> {
-  private final Monitor<AuctionBid> winningBidsMonitor;
+  private final Monitor<LatTSWrapped<AuctionBid>> winningBidsMonitor;
   private final NexmarkConfiguration configuration;
 
   public Query4(NexmarkConfiguration configuration) {
@@ -70,8 +68,8 @@ public class Query4 extends NexmarkQueryTransform<CategoryPrice> {
   }
 
   @Override
-  public PCollection<CategoryPrice> expand(PCollection<Event> events) {
-    PCollection<AuctionBid> winningBids =
+  public PCollection<LatTSWrapped<CategoryPrice>> expand(PCollection<LatTSWrapped<Event>> events) {
+    PCollection<LatTSWrapped<AuctionBid>> winningBids =
         events
             .apply(Filter.by(new AuctionOrBid()))
             // Find the winning bid for each closed auction.
@@ -86,12 +84,12 @@ public class Query4 extends NexmarkQueryTransform<CategoryPrice> {
         .apply(
             name + ".Rekey",
             ParDo.of(
-                new DoFn<AuctionBid, KV<Long, Long>>() {
+                new DoFn<LatTSWrapped<AuctionBid>, KV<Long, LatTSWrapped<Long>>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    Auction auction = c.element().auction;
-                    Bid bid = c.element().bid;
-                    c.output(KV.of(auction.category, bid.price));
+                    Auction auction = c.element().getValue().auction;
+                    Bid bid = c.element().getValue().bid;
+                    c.output(KV.of(auction.category, LatTSWrapped.of(bid.price,c.element().getLatTS())));
                   }
                 }))
 
@@ -103,20 +101,20 @@ public class Query4 extends NexmarkQueryTransform<CategoryPrice> {
 
         // Find the average of the winning bids for each category.
         // Make sure we share the work for each category between workers.
-        .apply(Mean.<Long, Long>perKey().withHotKeyFanout(configuration.fanout))
+        .apply(LatTSPropagatingMean.perKey())
 
         // For testing against Query4Model, capture which results are 'final'.
         .apply(
             name + ".Project",
             ParDo.of(
-                new DoFn<KV<Long, Double>, CategoryPrice>() {
+                new DoFn<KV<Long, LatTSWrapped<Double>>, LatTSWrapped<CategoryPrice>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    c.output(
+                    c.output(LatTSWrapped.of(
                         new CategoryPrice(
                             c.element().getKey(),
-                            Math.round(c.element().getValue()),
-                            c.pane().isLast()));
+                            Math.round(c.element().getValue().getValue()),
+                            c.pane().isLast()), c.element().getValue().getLatTS()));
                   }
                 }));
   }

@@ -23,10 +23,8 @@ import org.apache.beam.sdk.coders.ListCoder;
 import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
-import org.apache.beam.sdk.nexmark.model.Auction;
-import org.apache.beam.sdk.nexmark.model.Event;
-import org.apache.beam.sdk.nexmark.model.NameCityStateId;
-import org.apache.beam.sdk.nexmark.model.Person;
+import org.apache.beam.sdk.nexmark.model.*;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.state.StateSpec;
 import org.apache.beam.sdk.state.StateSpecs;
 import org.apache.beam.sdk.state.TimeDomain;
@@ -79,27 +77,27 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
   }
 
   @Override
-  public PCollection<NameCityStateId> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<NameCityStateId>> expand(PCollection<LatTSWrapped<Event>> events) {
     int numEventsInPane = 30;
 
-    PCollection<Event> eventsWindowed =
+    PCollection<LatTSWrapped<Event>> eventsWindowed =
         events.apply(
-            Window.<Event>into(new GlobalWindows())
+            Window.<LatTSWrapped<Event>>into(new GlobalWindows())
                 .triggering(Repeatedly.forever(AfterPane.elementCountAtLeast(numEventsInPane)))
                 .discardingFiredPanes()
                 .withAllowedLateness(Duration.ZERO));
-    PCollection<KV<Long, Auction>> auctionsBySellerId =
+    PCollection<KV<Long, LatTSWrapped<Auction>>> auctionsBySellerId =
         eventsWindowed
             // Only want the new auction events.
             .apply(NexmarkQueryUtil.JUST_NEW_AUCTIONS)
 
             // We only want auctions in category 10.
-            .apply(name + ".InCategory", Filter.by(auction -> auction.category == 10))
+            .apply(name + ".InCategory", Filter.by(auction -> auction.getValue().category == 10))
 
             // Key auctions by their seller id.
             .apply("AuctionBySeller", NexmarkQueryUtil.AUCTION_BY_SELLER);
 
-    PCollection<KV<Long, Person>> personsById =
+    PCollection<KV<Long, LatTSWrapped<Person>>> personsById =
         eventsWindowed
             // Only want the new people events.
             .apply(NexmarkQueryUtil.JUST_NEW_PERSONS)
@@ -109,9 +107,9 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
                 name + ".InState",
                 Filter.by(
                     person ->
-                        "OR".equals(person.state)
-                            || "ID".equals(person.state)
-                            || "CA".equals(person.state)))
+                        "OR".equals(person.getValue().state)
+                            || "ID".equals(person.getValue().state)
+                            || "CA".equals(person.getValue().state)))
 
             // Key people by their id.
             .apply("PersonById", NexmarkQueryUtil.PERSON_BY_ID);
@@ -129,14 +127,14 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
         .apply(
             name + ".Project",
             ParDo.of(
-                new DoFn<KV<Auction, Person>, NameCityStateId>() {
+                new DoFn<KV<LatTSWrapped<Auction>, LatTSWrapped<Person>>, LatTSWrapped<NameCityStateId>>() {
 
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    Auction auction = c.element().getKey();
-                    Person person = c.element().getValue();
+                    Auction auction = c.element().getKey().getValue();
+                    Person person = c.element().getValue().getValue();
                     c.output(
-                        new NameCityStateId(person.name, person.city, person.state, auction.id));
+                        LatTSWrapped.of(new NameCityStateId(person.name, person.city, person.state, auction.id), c.element().getKey().getLatTS(), c.element().getValue().getLatTS()));
                   }
                 }));
   }
@@ -152,20 +150,20 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
    * store auction records in persistent state until we have seen the corresponding person record.
    * And of course may have already seen that record.
    */
-  private static class JoinDoFn extends DoFn<KV<Long, CoGbkResult>, KV<Auction, Person>> {
+  private static class JoinDoFn extends DoFn<KV<Long, CoGbkResult>, KV<LatTSWrapped<Auction>, LatTSWrapped<Person>>> {
 
     private final int maxAuctionsWaitingTime;
     private static final String AUCTIONS = "auctions";
     private static final String PERSON = "person";
 
     @StateId(PERSON)
-    private static final StateSpec<ValueState<Person>> personSpec = StateSpecs.value(Person.CODER);
+    private static final StateSpec<ValueState<LatTSWrapped<Person>>> personSpec = StateSpecs.value(LatTSWrapped.LatTSWrappedValueCoder.of(Person.CODER));
 
     private static final String PERSON_STATE_EXPIRING = "personStateExpiring";
 
     @StateId(AUCTIONS)
-    private final StateSpec<ValueState<List<Auction>>> auctionsSpec =
-        StateSpecs.value(ListCoder.of(Auction.CODER));
+    private final StateSpec<ValueState<List<LatTSWrapped<Auction>>>> auctionsSpec =
+        StateSpecs.value(ListCoder.of(LatTSWrapped.LatTSWrappedValueCoder.of(Auction.CODER)));
 
     @TimerId(PERSON_STATE_EXPIRING)
     private final TimerSpec timerSpec = TimerSpecs.timer(TimeDomain.EVENT_TIME);
@@ -195,19 +193,19 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
     public void processElement(
         ProcessContext c,
         @TimerId(PERSON_STATE_EXPIRING) Timer timer,
-        @StateId(PERSON) ValueState<Person> personState,
-        @StateId(AUCTIONS) ValueState<List<Auction>> auctionsState) {
+        @StateId(PERSON) ValueState<LatTSWrapped<Person>> personState,
+        @StateId(AUCTIONS) ValueState<List<LatTSWrapped<Auction>>> auctionsState) {
       // We would *almost* implement this by  rewindowing into the global window and
       // running a combiner over the result. The combiner's accumulator would be the
       // state we use below. However, combiners cannot emit intermediate results, thus
       // we need to wait for the pending ReduceFn API.
 
-      Person existingPerson = personState.read();
+      LatTSWrapped<Person> existingPerson = personState.read();
       if (existingPerson != null) {
         // We've already seen the new person event for this person id.
         // We can join with any new auctions on-the-fly without needing any
         // additional persistent state.
-        for (Auction newAuction : c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG)) {
+        for (LatTSWrapped<Auction> newAuction : c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG)) {
           newAuctionCounter.inc();
           newOldOutputCounter.inc();
           c.output(KV.of(newAuction, existingPerson));
@@ -215,8 +213,8 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
         return;
       }
 
-      Person theNewPerson = null;
-      for (Person newPerson : c.element().getValue().getAll(NexmarkQueryUtil.PERSON_TAG)) {
+      LatTSWrapped<Person> theNewPerson = null;
+      for (LatTSWrapped<Person> newPerson : c.element().getValue().getAll(NexmarkQueryUtil.PERSON_TAG)) {
         if (theNewPerson == null) {
           theNewPerson = newPerson;
         } else {
@@ -231,16 +229,16 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
         newPersonCounter.inc();
         // We've now seen the person for this person id so can flush any
         // pending auctions for the same seller id (an auction is done by only one seller).
-        List<Auction> pendingAuctions = auctionsState.read();
+        List<LatTSWrapped<Auction>> pendingAuctions = auctionsState.read();
         if (pendingAuctions != null) {
-          for (Auction pendingAuction : pendingAuctions) {
+          for (LatTSWrapped<Auction> pendingAuction : pendingAuctions) {
             oldNewOutputCounter.inc();
             c.output(KV.of(pendingAuction, newPerson));
           }
           auctionsState.clear();
         }
         // Also deal with any new auctions.
-        for (Auction newAuction : c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG)) {
+        for (LatTSWrapped<Auction> newAuction : c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG)) {
           newAuctionCounter.inc();
           newNewOutputCounter.inc();
           c.output(KV.of(newAuction, newPerson));
@@ -249,7 +247,7 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
         personState.write(newPerson);
         // set a time out to clear this state
         Instant firingTime =
-            new Instant(newPerson.dateTime).plus(Duration.standardSeconds(maxAuctionsWaitingTime));
+            new Instant(newPerson.getValue().dateTime).plus(Duration.standardSeconds(maxAuctionsWaitingTime));
         timer.set(firingTime);
       }
       if (theNewPerson != null) {
@@ -258,11 +256,11 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
 
       // We'll need to remember the auctions until we see the corresponding
       // new person event.
-      List<Auction> pendingAuctions = auctionsState.read();
+      List<LatTSWrapped<Auction>> pendingAuctions = auctionsState.read();
       if (pendingAuctions == null) {
         pendingAuctions = new ArrayList<>();
       }
-      for (Auction newAuction : c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG)) {
+      for (LatTSWrapped<Auction> newAuction : c.element().getValue().getAll(NexmarkQueryUtil.AUCTION_TAG)) {
         newAuctionCounter.inc();
         pendingAuctions.add(newAuction);
       }
@@ -271,7 +269,7 @@ public class Query3 extends NexmarkQueryTransform<NameCityStateId> {
 
     @OnTimer(PERSON_STATE_EXPIRING)
     public void onTimerCallback(
-        OnTimerContext context, @StateId(PERSON) ValueState<Person> personState) {
+        OnTimerContext context, @StateId(PERSON) ValueState<LatTSWrapped<Person>> personState) {
       personState.clear();
     }
   }

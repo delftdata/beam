@@ -23,6 +23,7 @@ import java.util.Map;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.View;
@@ -52,7 +53,7 @@ public class BoundedSideInputJoin extends NexmarkQueryTransform<Bid> {
   }
 
   @Override
-  public PCollection<Bid> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<Bid>> expand(PCollection<LatTSWrapped<Event>> events) {
 
     checkState(getSideInput() != null, "Configuration error: side input is null");
 
@@ -66,18 +67,18 @@ public class BoundedSideInputJoin extends NexmarkQueryTransform<Bid> {
         .apply(
             name + ".JoinToFiles",
             ParDo.of(
-                    new DoFn<Bid, Bid>() {
+                    new DoFn<LatTSWrapped<Bid>, LatTSWrapped<Bid>>() {
                       @ProcessElement
                       public void processElement(ProcessContext c) {
-                        Bid bid = c.element();
-                        c.output(
+                        Bid bid = c.element().getValue();
+                        c.output(LatTSWrapped.of(
                             new Bid(
                                 bid.auction,
                                 bid.bidder,
                                 bid.price,
                                 bid.dateTime,
                                 c.sideInput(sideInputMap)
-                                    .get(bid.bidder % configuration.sideInputRowCount)));
+                                    .get(bid.bidder % configuration.sideInputRowCount)), c.element().getLatTS()));
                       }
                     })
                 .withSideInputs(sideInputMap));

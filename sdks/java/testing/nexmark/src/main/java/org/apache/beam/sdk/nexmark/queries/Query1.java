@@ -20,6 +20,7 @@ package org.apache.beam.sdk.nexmark.queries;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
@@ -41,7 +42,7 @@ public class Query1 extends NexmarkQueryTransform<Bid> {
   }
 
   @Override
-  public PCollection<Bid> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<Bid>> expand(PCollection<LatTSWrapped<Event>> events) {
     return events
         // Only want the bid events.
         .apply(NexmarkQueryUtil.JUST_BIDS)
@@ -50,17 +51,17 @@ public class Query1 extends NexmarkQueryTransform<Bid> {
         .apply(
             name + ".ToEuros",
             ParDo.of(
-                new DoFn<Bid, Bid>() {
+                new DoFn<LatTSWrapped<Bid>, LatTSWrapped<Bid>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    Bid bid = c.element();
-                    c.output(
+                    Bid bid = c.element().getValue();
+                    c.output(LatTSWrapped.of(
                         new Bid(
                             bid.auction,
                             bid.bidder,
                             (bid.price * 89) / 100,
                             bid.dateTime,
-                            bid.extra));
+                            bid.extra), c.element().getLatTS()));
                   }
                 }));
   }

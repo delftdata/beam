@@ -26,6 +26,7 @@ import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.nexmark.NexmarkUtils;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.nexmark.sources.generator.Generator;
 import org.apache.beam.sdk.nexmark.sources.generator.GeneratorConfig;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -33,7 +34,7 @@ import org.apache.beam.sdk.values.TimestampedValue;
 import org.joda.time.Instant;
 
 /** A custom, bounded source of event records. */
-public class BoundedEventSource extends BoundedSource<Event> {
+public class BoundedEventSource extends BoundedSource<LatTSWrapped<Event>> {
   /** Configuration we generate events against. */
   private final GeneratorConfig config;
 
@@ -46,7 +47,7 @@ public class BoundedEventSource extends BoundedSource<Event> {
   }
 
   /** A reader to pull events from the generator. */
-  private static class EventReader extends BoundedReader<Event> {
+  private static class EventReader extends BoundedReader<LatTSWrapped<Event>> {
     /**
      * Event source we purporting to be reading from. (We can't use Java's capture-outer-class
      * pointer since we must update this field on calls to splitAtFraction.)
@@ -87,11 +88,11 @@ public class BoundedEventSource extends BoundedSource<Event> {
     }
 
     @Override
-    public synchronized Event getCurrent() throws NoSuchElementException {
+    public synchronized LatTSWrapped<Event> getCurrent() throws NoSuchElementException {
       if (currentEvent == null) {
         throw new NoSuchElementException();
       }
-      return currentEvent.getValue();
+      return LatTSWrapped.of(currentEvent.getValue());
     }
 
     @Override
@@ -113,7 +114,7 @@ public class BoundedEventSource extends BoundedSource<Event> {
     }
 
     @Override
-    public synchronized BoundedSource<Event> getCurrentSource() {
+    public synchronized BoundedSource<LatTSWrapped<Event>> getCurrentSource() {
       return source;
     }
 
@@ -181,7 +182,7 @@ public class BoundedEventSource extends BoundedSource<Event> {
   }
 
   @Override
-  public Coder<Event> getDefaultOutputCoder() {
-    return Event.CODER;
+  public Coder<LatTSWrapped<Event>> getDefaultOutputCoder() {
+    return LatTSWrapped.LatTSWrappedValueCoder.of(Event.CODER);
   }
 }

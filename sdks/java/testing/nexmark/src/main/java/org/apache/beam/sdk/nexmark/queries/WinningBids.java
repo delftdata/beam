@@ -40,10 +40,8 @@ import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.NexmarkUtils;
-import org.apache.beam.sdk.nexmark.model.Auction;
-import org.apache.beam.sdk.nexmark.model.AuctionBid;
-import org.apache.beam.sdk.nexmark.model.Bid;
-import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.*;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.nexmark.sources.generator.GeneratorConfig;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -75,7 +73,7 @@ import org.joda.time.Instant;
  * <p>Our implementation will use a custom windowing function in order to bring bids and auctions
  * together without requiring global state.
  */
-public class WinningBids extends PTransform<PCollection<Event>, PCollection<AuctionBid>> {
+public class WinningBids extends PTransform<PCollection<LatTSWrapped<Event>>, PCollection<LatTSWrapped<AuctionBid>>> {
   /** Windows for open auctions and bids. */
   private static class AuctionOrBidWindow extends IntervalWindow {
     /** Id of auction this window is for. */
@@ -200,7 +198,7 @@ public class WinningBids extends PTransform<PCollection<Event>, PCollection<Auct
   }
 
   /** Assign events to auction windows and merges them intelligently. */
-  private static class AuctionOrBidWindowFn extends WindowFn<Event, AuctionOrBidWindow> {
+  private static class AuctionOrBidWindowFn extends WindowFn<LatTSWrapped<Event>, AuctionOrBidWindow> {
     /** Expected duration of auctions in ms. */
     private final long expectedAuctionDurationMs;
 
@@ -210,16 +208,16 @@ public class WinningBids extends PTransform<PCollection<Event>, PCollection<Auct
 
     @Override
     public Collection<AuctionOrBidWindow> assignWindows(AssignContext c) {
-      Event event = c.element();
-      if (event.newAuction != null) {
+      LatTSWrapped<Event> event = c.element();
+      if (event.getValue().newAuction != null) {
         // Assign auctions to an auction window which expires at the auction's close.
         return Collections.singletonList(
-            AuctionOrBidWindow.forAuction(c.timestamp(), event.newAuction));
-      } else if (event.bid != null) {
+            AuctionOrBidWindow.forAuction(c.timestamp(), event.getValue().newAuction));
+      } else if (event.getValue().bid != null) {
         // Assign bids to a temporary bid window which will later be merged into the appropriate
         // auction window.
         return Collections.singletonList(
-            AuctionOrBidWindow.forBid(expectedAuctionDurationMs, c.timestamp(), event.bid));
+            AuctionOrBidWindow.forBid(expectedAuctionDurationMs, c.timestamp(), event.getValue().bid));
       } else {
         throw new IllegalArgumentException(
             String.format(
@@ -330,20 +328,20 @@ public class WinningBids extends PTransform<PCollection<Event>, PCollection<Auct
   }
 
   @Override
-  public PCollection<AuctionBid> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<AuctionBid>> expand(PCollection<LatTSWrapped<Event>> events) {
     // Window auctions and bids into custom auction windows. New people events will be discarded.
     // This will allow us to bring bids and auctions together irrespective of how long
     // each auction is open for.
     events = events.apply("Window", Window.into(auctionOrBidWindowFn));
 
     // Key auctions by their id.
-    PCollection<KV<Long, Auction>> auctionsById =
+    PCollection<KV<Long, LatTSWrapped<Auction>>> auctionsById =
         events
             .apply(NexmarkQueryUtil.JUST_NEW_AUCTIONS)
             .apply("AuctionById:", NexmarkQueryUtil.AUCTION_BY_ID);
 
     // Key bids by their auction id.
-    PCollection<KV<Long, Bid>> bidsByAuctionId =
+    PCollection<KV<Long, LatTSWrapped<Bid>>> bidsByAuctionId =
         events
             .apply(NexmarkQueryUtil.JUST_BIDS)
             .apply("BidByAuction", NexmarkQueryUtil.BID_BY_AUCTION);
@@ -358,7 +356,7 @@ public class WinningBids extends PTransform<PCollection<Event>, PCollection<Auct
         .apply(
             name + ".Join",
             ParDo.of(
-                new DoFn<KV<Long, CoGbkResult>, AuctionBid>() {
+                new DoFn<KV<Long, CoGbkResult>, LatTSWrapped<AuctionBid>>() {
                   private final Counter noAuctionCounter = Metrics.counter(name, "noAuction");
                   private final Counter underReserveCounter = Metrics.counter(name, "underReserve");
                   private final Counter noValidBidsCounter = Metrics.counter(name, "noValidBids");
@@ -366,7 +364,7 @@ public class WinningBids extends PTransform<PCollection<Event>, PCollection<Auct
                   @ProcessElement
                   public void processElement(ProcessContext c) {
                     @Nullable
-                    Auction auction =
+                    LatTSWrapped<Auction> auction =
                         c.element().getValue().getOnly(NexmarkQueryUtil.AUCTION_TAG, null);
                     if (auction == null) {
                       // We have bids without a matching auction. Give up.
@@ -375,20 +373,22 @@ public class WinningBids extends PTransform<PCollection<Event>, PCollection<Auct
                     }
                     // Find the current winning bid for auction.
                     // The earliest bid with the maximum price above the reserve wins.
-                    Bid bestBid = null;
-                    for (Bid bid : c.element().getValue().getAll(NexmarkQueryUtil.BID_TAG)) {
+                    LatTSWrapped<Bid> bestBid = null;
+                    long latestTS = Long.MIN_VALUE;
+                    for (LatTSWrapped<Bid> bid : c.element().getValue().getAll(NexmarkQueryUtil.BID_TAG)) {
                       // Bids too late for their auction will have been
                       // filtered out by the window merge function.
-                      checkState(bid.dateTime.compareTo(auction.expires) < 0);
-                      if (bid.price < auction.reserve) {
+                      checkState(bid.getValue().dateTime.compareTo(auction.getValue().expires) < 0);
+                      if (bid.getValue().price < auction.getValue().reserve) {
                         // Bid price is below auction reserve.
                         underReserveCounter.inc();
                         continue;
                       }
 
                       if (bestBid == null
-                          || Bid.PRICE_THEN_DESCENDING_TIME.compare(bid, bestBid) > 0) {
+                          || Bid.PRICE_THEN_DESCENDING_TIME.compare(bid.getValue(), bestBid.getValue()) > 0) {
                         bestBid = bid;
+                        latestTS = Math.max(bid.getLatTS(), latestTS);
                       }
                     }
                     if (bestBid == null) {
@@ -396,7 +396,7 @@ public class WinningBids extends PTransform<PCollection<Event>, PCollection<Auct
                       noValidBidsCounter.inc();
                       return;
                     }
-                    c.output(new AuctionBid(auction, bestBid));
+                    c.output(LatTSWrapped.of(new AuctionBid(auction.getValue(), bestBid.getValue()), latestTS, auction.getLatTS()));
                   }
                 }));
   }

@@ -25,6 +25,7 @@ import org.apache.beam.sdk.nexmark.model.AuctionBid;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.Event;
 import org.apache.beam.sdk.nexmark.model.SellerPrice;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Filter;
@@ -66,7 +67,7 @@ public class Query6 extends NexmarkQueryTransform<SellerPrice> {
    * Combiner to keep track of up to {@code maxNumBids} of the most recent wining bids and calculate
    * their average selling price.
    */
-  private static class MovingMeanSellingPrice extends Combine.CombineFn<Bid, List<Bid>, Long> {
+  private static class MovingMeanSellingPrice extends Combine.CombineFn<LatTSWrapped<Bid>, LatTSWrapped<List<Bid>>, LatTSWrapped<Long>> {
     private final int maxNumBids;
 
     public MovingMeanSellingPrice(int maxNumBids) {
@@ -74,48 +75,50 @@ public class Query6 extends NexmarkQueryTransform<SellerPrice> {
     }
 
     @Override
-    public List<Bid> createAccumulator() {
-      return new ArrayList<>();
+    public LatTSWrapped<List<Bid>> createAccumulator() {
+      return LatTSWrapped.of(new ArrayList<>(), Long.MIN_VALUE);
     }
 
     @Override
-    public List<Bid> addInput(List<Bid> accumulator, Bid input) {
-      accumulator.add(input);
-      accumulator.sort(Bid.ASCENDING_TIME_THEN_PRICE);
-      if (accumulator.size() > maxNumBids) {
-        accumulator.remove(0);
+    public LatTSWrapped<List<Bid>> addInput(LatTSWrapped<List<Bid>> accumulator, LatTSWrapped<Bid> input) {
+      accumulator.getValue().add(input.getValue());
+      accumulator.getValue().sort(Bid.ASCENDING_TIME_THEN_PRICE);
+      if (accumulator.getValue().size() > maxNumBids) {
+        accumulator.getValue().remove(0);
       }
-      return accumulator;
+      return LatTSWrapped.of(accumulator.getValue(), accumulator.getLatTS(), input.getLatTS());
     }
 
     @Override
-    public List<Bid> mergeAccumulators(Iterable<List<Bid>> accumulators) {
+    public LatTSWrapped<List<Bid>> mergeAccumulators(Iterable<LatTSWrapped<List<Bid>>> accumulators) {
       List<Bid> result = new ArrayList<>();
-      for (List<Bid> accumulator : accumulators) {
-        result.addAll(accumulator);
+      long maxTS = Long.MIN_VALUE;
+      for (LatTSWrapped<List<Bid>> accumulator : accumulators) {
+        result.addAll(accumulator.getValue());
+        maxTS = Math.max(accumulator.getLatTS(), maxTS);
       }
       result.sort(Bid.ASCENDING_TIME_THEN_PRICE);
       if (result.size() > maxNumBids) {
         result = Lists.newArrayList(result.listIterator(result.size() - maxNumBids));
       }
-      return result;
+      return LatTSWrapped.of(result, maxTS);
     }
 
     @Override
-    public Long extractOutput(List<Bid> accumulator) {
-      if (accumulator.isEmpty()) {
-        return 0L;
+    public LatTSWrapped<Long> extractOutput(LatTSWrapped<List<Bid>> accumulator) {
+      if (accumulator.getValue().isEmpty()) {
+        return LatTSWrapped.of(0L);
       }
       long sumOfPrice = 0;
-      for (Bid bid : accumulator) {
+      for (Bid bid : accumulator.getValue()) {
         sumOfPrice += bid.price;
       }
-      return Math.round((double) sumOfPrice / accumulator.size());
+      return LatTSWrapped.of(Math.round((double) sumOfPrice / accumulator.getValue().size()), accumulator.getLatTS());
     }
   }
 
   @Override
-  public PCollection<SellerPrice> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<SellerPrice>> expand(PCollection<LatTSWrapped<Event>> events) {
     return events
         .apply(Filter.by(new AuctionOrBid()))
         // Find the winning bid for each closed auction.
@@ -125,18 +128,18 @@ public class Query6 extends NexmarkQueryTransform<SellerPrice> {
         .apply(
             name + ".Rekey",
             ParDo.of(
-                new DoFn<AuctionBid, KV<Long, Bid>>() {
+                new DoFn<LatTSWrapped<AuctionBid>, KV<Long, LatTSWrapped<Bid>>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    Auction auction = c.element().auction;
-                    Bid bid = c.element().bid;
-                    c.output(KV.of(auction.seller, bid));
+                    Auction auction = c.element().getValue().auction;
+                    Bid bid = c.element().getValue().bid;
+                    c.output(KV.of(auction.seller, LatTSWrapped.of(bid, c.element().getLatTS())));
                   }
                 }))
 
         // Re-window to update on every wining bid.
         .apply(
-            Window.<KV<Long, Bid>>into(new GlobalWindows())
+            Window.<KV<Long, LatTSWrapped<Bid>>>into(new GlobalWindows())
                 .triggering(Repeatedly.forever(AfterPane.elementCountAtLeast(1)))
                 .accumulatingFiredPanes()
                 .withAllowedLateness(Duration.ZERO))
@@ -148,10 +151,10 @@ public class Query6 extends NexmarkQueryTransform<SellerPrice> {
         .apply(
             name + ".Select",
             ParDo.of(
-                new DoFn<KV<Long, Long>, SellerPrice>() {
+                new DoFn<KV<Long, LatTSWrapped<Long>>, LatTSWrapped<SellerPrice>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    c.output(new SellerPrice(c.element().getKey(), c.element().getValue()));
+                    c.output(LatTSWrapped.of(new SellerPrice(c.element().getKey(), c.element().getValue().getValue()), c.element().getValue().getLatTS()));
                   }
                 }));
   }

@@ -23,6 +23,7 @@ import java.util.List;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.AuctionCount;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -59,7 +60,7 @@ public class Query5 extends NexmarkQueryTransform<AuctionCount> {
   }
 
   @Override
-  public PCollection<AuctionCount> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<AuctionCount>> expand(PCollection<LatTSWrapped<Event>> events) {
     return events
         // Only want the bid events.
         .apply(NexmarkQueryUtil.JUST_BIDS)
@@ -81,12 +82,12 @@ public class Query5 extends NexmarkQueryTransform<AuctionCount> {
         .apply(
             name + ".ToSingletons",
             ParDo.of(
-                new DoFn<KV<Long, Long>, KV<List<Long>, Long>>() {
+                new DoFn<KV<LatTSWrapped<Long>, Long>, KV<LatTSWrapped<List<Long>>, Long>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
                     c.output(
-                        KV.of(
-                            Collections.singletonList(c.element().getKey()),
+                        KV.of(LatTSWrapped.of(
+                            Collections.singletonList(c.element().getKey().getValue()),c.element().getKey().getLatTS()),
                             c.element().getValue()));
                   }
                 }))
@@ -94,39 +95,44 @@ public class Query5 extends NexmarkQueryTransform<AuctionCount> {
         // Keep only the auction ids with the most bids.
         .apply(
             Combine.globally(
-                    new Combine.BinaryCombineFn<KV<List<Long>, Long>>() {
+                    new Combine.BinaryCombineFn<KV<LatTSWrapped<List<Long>>, Long>>() {
                       @Override
-                      public KV<List<Long>, Long> apply(
-                          KV<List<Long>, Long> left, KV<List<Long>, Long> right) {
-                        List<Long> leftBestAuctions = left.getKey();
+                      public KV<LatTSWrapped<List<Long>>, Long> apply(
+                          KV<LatTSWrapped<List<Long>>, Long> left, KV<LatTSWrapped<List<Long>>, Long> right) {
+                          LatTSWrapped<List<Long>> leftBestAuctions = left.getKey();
                         long leftCount = left.getValue();
-                        List<Long> rightBestAuctions = right.getKey();
+                          LatTSWrapped<List<Long>> rightBestAuctions = right.getKey();
                         long rightCount = right.getValue();
+
+                        long leftTimestamp = left.getKey().getLatTS();
+                        long rightTimestamp = right.getKey().getLatTS();
+
                         if (leftCount > rightCount) {
-                          return left;
+                          return KV.of(LatTSWrapped.of(leftBestAuctions.getValue(),leftTimestamp,rightTimestamp), leftCount);
                         } else if (leftCount < rightCount) {
-                          return right;
+                            return KV.of(LatTSWrapped.of(rightBestAuctions.getValue(),leftTimestamp,rightTimestamp), rightCount);
                         } else {
-                          List<Long> newBestAuctions = new ArrayList<>();
-                          newBestAuctions.addAll(leftBestAuctions);
-                          newBestAuctions.addAll(rightBestAuctions);
-                          return KV.of(newBestAuctions, leftCount);
+                            List<Long> newBestAuctions = new ArrayList<>();
+                          newBestAuctions.addAll(leftBestAuctions.getValue());
+                          newBestAuctions.addAll(rightBestAuctions.getValue());
+                          return KV.of(LatTSWrapped.of(newBestAuctions, leftTimestamp,rightTimestamp), leftCount);
                         }
                       }
                     })
-                .withoutDefaults()
-                .withFanout(configuration.fanout))
+                .withoutDefaults())
+                //.withFanout(configuration.fanout))
 
         // Project into result.
         .apply(
             name + ".Select",
             ParDo.of(
-                new DoFn<KV<List<Long>, Long>, AuctionCount>() {
+                new DoFn<KV<LatTSWrapped<List<Long>>, Long>, LatTSWrapped<AuctionCount>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
                     long count = c.element().getValue();
-                    for (long auction : c.element().getKey()) {
-                      c.output(new AuctionCount(auction, count));
+                    long latTS = c.element().getKey().getLatTS();
+                    for (Long auction : c.element().getKey().getValue()) {
+                      c.output(LatTSWrapped.of(new AuctionCount(auction, count), latTS));
                     }
                   }
                 }));

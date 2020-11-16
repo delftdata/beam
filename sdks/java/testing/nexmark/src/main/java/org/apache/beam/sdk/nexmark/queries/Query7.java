@@ -20,6 +20,9 @@ package org.apache.beam.sdk.nexmark.queries;
 import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSPropagatingMaxLong;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
+import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Max;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -53,9 +56,9 @@ public class Query7 extends NexmarkQueryTransform<Bid> {
   }
 
   @Override
-  public PCollection<Bid> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<Bid>> expand(PCollection<LatTSWrapped<Event>> events) {
     // Window the bids.
-    PCollection<Bid> slidingBids =
+    PCollection<LatTSWrapped<Bid>> slidingBids =
         events
             .apply(NexmarkQueryUtil.JUST_BIDS)
             .apply(
@@ -67,23 +70,23 @@ public class Query7 extends NexmarkQueryTransform<Bid> {
     // a binary combiner to accumulate the bids with maximal price. As written this query
     // requires an additional scan per window, with the associated cost of snapshotted state and
     // its I/O. We'll keep this implementation since it illustrates the use of side inputs.
-    final PCollectionView<Long> maxPriceView =
+    final PCollectionView<LatTSWrapped<Long>> maxPriceView =
         slidingBids
             .apply("BidToPrice", NexmarkQueryUtil.BID_TO_PRICE)
-            .apply(Max.longsGlobally().withFanout(configuration.fanout).asSingletonView());
+            .apply(Combine.globally(new LatTSPropagatingMaxLong()).asSingletonView());
 
     return slidingBids
         // Select all bids which have that maximum price (there may be more than one).
         .apply(
         name + ".Select",
         ParDo.of(
-                new DoFn<Bid, Bid>() {
+                new DoFn<LatTSWrapped<Bid>, LatTSWrapped<Bid>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    long maxPrice = c.sideInput(maxPriceView);
-                    Bid bid = c.element();
+                    long maxPrice = c.sideInput(maxPriceView).getValue();
+                    Bid bid = c.element().getValue();
                     if (bid.price == maxPrice) {
-                      c.output(bid);
+                      c.output(LatTSWrapped.of(bid, c.sideInput(maxPriceView).getLatTS(), c.element().getLatTS()));
                     }
                   }
                 })

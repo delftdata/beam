@@ -21,6 +21,7 @@ import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.BidsPerSession;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -47,19 +48,19 @@ public class Query12 extends NexmarkQueryTransform<BidsPerSession> {
   }
 
   @Override
-  public PCollection<BidsPerSession> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<BidsPerSession>> expand(PCollection<LatTSWrapped<Event>> events) {
     return events
         .apply(NexmarkQueryUtil.JUST_BIDS)
         .apply(
             ParDo.of(
-                new DoFn<Bid, Long>() {
+                new DoFn<LatTSWrapped<Bid>, LatTSWrapped<Long>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    c.output(c.element().bidder);
+                    c.output(LatTSWrapped.of(c.element().getValue().bidder, c.element().getLatTS()));
                   }
                 }))
         .apply(
-            Window.<Long>into(new GlobalWindows())
+            Window.<LatTSWrapped<Long>>into(new GlobalWindows())
                 .triggering(
                     Repeatedly.forever(
                         AfterProcessingTime.pastFirstElementInPane()
@@ -70,10 +71,10 @@ public class Query12 extends NexmarkQueryTransform<BidsPerSession> {
         .apply(
             name + ".ToResult",
             ParDo.of(
-                new DoFn<KV<Long, Long>, BidsPerSession>() {
+                new DoFn<KV<LatTSWrapped<Long>, Long>, LatTSWrapped<BidsPerSession>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    c.output(new BidsPerSession(c.element().getKey(), c.element().getValue()));
+                    c.output(LatTSWrapped.of(new BidsPerSession(c.element().getKey().getValue(), c.element().getValue()), c.element().getKey().getLatTS()));
                   }
                 }));
   }

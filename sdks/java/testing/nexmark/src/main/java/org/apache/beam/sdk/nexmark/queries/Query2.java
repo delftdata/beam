@@ -21,6 +21,7 @@ import org.apache.beam.sdk.nexmark.NexmarkConfiguration;
 import org.apache.beam.sdk.nexmark.model.AuctionPrice;
 import org.apache.beam.sdk.nexmark.model.Bid;
 import org.apache.beam.sdk.nexmark.model.Event;
+import org.apache.beam.sdk.nexmark.model.workaround.LatTSWrapped;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Filter;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -48,23 +49,23 @@ public class Query2 extends NexmarkQueryTransform<AuctionPrice> {
   }
 
   @Override
-  public PCollection<AuctionPrice> expand(PCollection<Event> events) {
+  public PCollection<LatTSWrapped<AuctionPrice>> expand(PCollection<LatTSWrapped<Event>> events) {
     return events
         // Only want the bid events.
         .apply(NexmarkQueryUtil.JUST_BIDS)
 
         // Select just the bids for the auctions we care about.
-        .apply(Filter.by(bid -> bid.auction % this.auctionSkip == 0))
+        .apply(Filter.by(bid -> bid.getValue().auction % this.auctionSkip == 0))
 
         // Project just auction id and price.
         .apply(
             name + ".Project",
             ParDo.of(
-                new DoFn<Bid, AuctionPrice>() {
+                new DoFn<LatTSWrapped<Bid>, LatTSWrapped<AuctionPrice>>() {
                   @ProcessElement
                   public void processElement(ProcessContext c) {
-                    Bid bid = c.element();
-                    c.output(new AuctionPrice(bid.auction, bid.price));
+                    Bid bid = c.element().getValue();
+                    c.output(LatTSWrapped.of(new AuctionPrice(bid.auction, bid.price), c.element().getLatTS()));
                   }
                 }));
   }
